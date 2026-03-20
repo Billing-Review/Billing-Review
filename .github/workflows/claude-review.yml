@@ -1,0 +1,75 @@
+name: 🤖 Claude PR Review (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        required: true
+        type: number
+      repo_name:
+        required: true
+        type: string
+      manual_trigger:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+      SLACK_WEBHOOK_URL:
+        required: false
+      ORG_GITHUB_TOKEN:
+        required: true
+
+jobs:
+  claude-review:
+    runs-on:
+      group: claude-code-review
+
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: 📥 Checkout target repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repo_name }}
+          fetch-depth: 0
+          token: ${{ secrets.ORG_GITHUB_TOKEN }}
+
+      - name: 📥 Checkout shared config
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/.github
+          path: .shared-config
+          token: ${{ secrets.ORG_GITHUB_TOKEN }}
+
+      - name: 🔍 Merge review config
+        id: config
+        run: |
+          python3 .shared-config/scripts/merge_config.py \
+            --base .shared-config/review-config/base-rules.yml \
+            --conventions .shared-config/review-config/conventions.yml \
+            --repo-override .claude-review.yml \
+            --output /tmp/merged-review-config.yml
+
+      - name: 🤖 Claude Code Review
+        env:
+          SHARED_CONFIG_DIR: .shared-config/review-config
+          GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
+          GH_HOST: github.nhnent.com
+        run: |
+          python3 .shared-config/scripts/claude_review.py \
+            "${{ inputs.pr_number }}" \
+            "${{ inputs.repo_name }}"
+
+#      - name: 📢 Send notification
+#        if: always()
+#        env:
+#          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+#          PR_NUMBER: ${{ inputs.pr_number }}
+#          REPO_NAME: ${{ inputs.repo_name }}
+#          REVIEW_STATUS: ${{ steps.config.outcome }}
+#        run: |
+#          python3 .shared-config/scripts/notify.py
