@@ -41,7 +41,7 @@ jobs:
       - name: 📥 Checkout shared config
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository_owner }}/.Billing-Review
+          repository: ${{ github.repository_owner }}/Billing-Review
           path: .shared-config
           token: ${{ secrets.ORG_GITHUB_TOKEN }}
 
