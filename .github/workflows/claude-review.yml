@@ -45,14 +45,16 @@ jobs:
           path: .shared-config
           token: ${{ secrets.ORG_GITHUB_TOKEN }}
 
-      - name: 🔍 Merge review config
-        id: config
+      - name: 🔑 Validate Claude authentication
+        id: auth-check
         run: |
-          python3 .shared-config/scripts/merge_config.py \
-            --base .shared-config/review-config/base-rules.yml \
-            --conventions .shared-config/review-config/conventions.yml \
-            --repo-override .claude-review.yml \
-            --output /tmp/merged-review-config.yml
+          if claude --version > /dev/null 2>&1; then
+            echo "cli_installed=true" >> $GITHUB_OUTPUT
+          else
+            echo "cli_installed=false" >> $GITHUB_OUTPUT
+            echo "::error::Claude Code CLI가 이 Runner에 설치되어 있지 않습니다."
+            exit 1
+          fi
 
       - name: 🤖 Claude Code Review
         env:
@@ -63,6 +65,21 @@ jobs:
           python3 .shared-config/scripts/claude_review.py \
             "${{ inputs.pr_number }}" \
             "${{ inputs.repo_name }}"
+          
+
+      - name: 🤖 Run Claude Code Review
+        env:
+          SHARED_CONFIG_DIR: .shared-config/review-config
+          GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
+#          GH_ENTERPRISE_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
+#          GH_HOST: github.nhnent.com
+          MAX_DIFF_LINES: '2000'
+          CLAUDE_TIMEOUT: '300'
+        run: |
+          python3 .shared-config/scripts/claude_review.py \
+            "${{ inputs.pr_number }}" \
+            "${{ inputs.repo_name }}"    
+      
 
 #      - name: 📢 Send notification
 #        if: always()
