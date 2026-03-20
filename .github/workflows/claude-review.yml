@@ -23,8 +23,8 @@ on:
 
 jobs:
   claude-review:
-    runs-on: ubuntu-latest
-    #      group: claude-code-review
+    runs-on:
+      group: claude-code-review
 
     permissions:
       contents: read
