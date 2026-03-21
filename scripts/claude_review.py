@@ -9,15 +9,31 @@ Claude PR Review Script
     review-config/
     ├── review-prompt.md           ← 역할 + 리뷰 규칙 + 출력 형식 통합
     ├── conventions.md             ← 공통 코딩 컨벤션
-    ├── skills/                    ← 파일 타입별 Skills (선택)
+    ├── skills/                    ← 기술스택별 리뷰 가이드
     │   ├── java-spring.md
+    │   ├── jpa.md
     │   ├── mybatis.md
-    │   ├── vue3-frontend.md
-    │   ├── github-actions.md
-    │   └── xml-config.md
+    │   ├── spring-batch.md
+    │   ├── kafka.md
+    │   ├── redis.md
     └── repo/
-        ├── payment-service.md     ← 리포별 추가 규칙 (선택)
-        └── order-api.md
+        └── payment-service.md     ← 리포별 기술스택 + 추가 규칙
+
+repo별 md 형식 예시:
+    # payment-service 리뷰 규칙
+
+    ## 기술 스택
+    - java-spring
+    - jpa
+    - kafka
+    - redis
+
+    ## 리뷰 제외
+    - `src/main/generated/**`
+    - `**/Q*.java`
+
+    ## 추가 규칙
+    - 결제 금액 필드는 반드시 BigDecimal 사용
 
 사용법:
     python3 claude_review.py <pr_number> <repo_full_name> [--dry-run]
@@ -35,7 +51,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional, Set
+from typing import Dict, List, Optional, Set
 
 # ============================================================
 # 상수
@@ -43,7 +59,7 @@ from typing import Dict, Optional, Set
 
 SHARED_CONFIG_DIR = os.environ.get("SHARED_CONFIG_DIR", ".shared-config/review-config")
 
-REVIEW_PROMPT_PATH = os.path.join(SHARED_CONFIG_DIR, "review-prompt.md")  # 역할 + 규칙 + 출력형식 통합
+REVIEW_PROMPT_PATH = os.path.join(SHARED_CONFIG_DIR, "review-prompt.md")
 CONVENTIONS_PATH   = os.path.join(SHARED_CONFIG_DIR, "conventions.md")
 SKILLS_DIR         = os.path.join(SHARED_CONFIG_DIR, "skills")
 REPO_CONFIG_DIR    = os.path.join(SHARED_CONFIG_DIR, "repo")
@@ -78,20 +94,14 @@ EXTENSION_TO_FILE_TYPE: Dict[str, str] = {
     ".json":       "json",
     ".xml":        "xml",
     ".properties": "properties",
+    ".gradle":     "gradle",
+    ".kts":        "gradle",
     ".py":         "python",
     ".sh":         "shell",
     ".sql":        "sql",
 }
 
 ALL_REVIEWABLE_EXTENSIONS: Set[str] = set(EXTENSION_TO_FILE_TYPE.keys())
-
-FILE_TYPE_TO_SKILL: Dict[str, str] = {
-    "java":       "java-spring",
-    "vue":        "vue3-frontend",
-    "javascript": "vue3-frontend",
-    "yaml":       "github-actions",
-    "xml":        "mybatis",
-}
 
 
 # ============================================================
@@ -363,31 +373,49 @@ def read_file_safe(path: str) -> str:
     return ""
 
 
-def load_skills(file_types: Set[str], files: Set[str], diff: str) -> Dict[str, str]:
-    """감지된 파일 타입에 해당하는 skill만 선택적으로 로드한다."""
+def find_repo_config(repo_full_name: str) -> str:
+    """repo별 설정 파일을 로드한다."""
+    repo_name = repo_full_name.split("/")[-1]
+    return read_file_safe(os.path.join(REPO_CONFIG_DIR, f"{repo_name}.md"))
+
+
+def parse_skill_names(repo_config_content: str) -> List[str]:
+    """repo별 md의 '기술 스택' 섹션에서 skill 이름 목록을 파싱한다.
+
+    형식:
+        ## 기술 스택
+        - java-spring
+        - jpa
+        - kafka
+    """
+    skill_names = []
+    in_section = False
+    for line in repo_config_content.split("\n"):
+        stripped = line.strip()
+        if stripped == "## 기술 스택":
+            in_section = True
+            continue
+        if in_section:
+            if stripped.startswith("#"):
+                break
+            if stripped.startswith("- "):
+                name = stripped[2:].strip()
+                if name:
+                    skill_names.append(name)
+    return skill_names
+
+
+def load_skills(skill_names: List[str]) -> Dict[str, str]:
+    """repo config에 선언된 skill 목록을 순서대로 로드한다.
+
+    - skill 파일이 없으면 경고 후 스킵
+    - MAX_SKILL_CHARS 초과 시 잘라냄
+    - 누적 MAX_SKILLS_TOTAL 초과 시 이후 skill 생략
+    """
     skills: Dict[str, str] = {}
     total_chars = 0
 
-    for file_type in sorted(file_types):
-        skill_name = FILE_TYPE_TO_SKILL.get(file_type)
-        if not skill_name:
-            continue
-
-        # yaml → github-actions: .github/ 경로 파일이 있을 때만
-        if file_type == "yaml" and not any(".github/" in f for f in files):
-            continue
-
-        # xml → mybatis or xml-config
-        if file_type == "xml":
-            has_mybatis = any(
-                kw in diff for kw in ["<mapper", "<select", "<insert", "<update", "<delete", "mybatis"]
-            )
-            skill_name = "mybatis" if has_mybatis else "xml-config"
-
-        # 중복 스킵 (vue + javascript 둘 다 감지된 경우)
-        if skill_name in skills:
-            continue
-
+    for skill_name in skill_names:
         skill_path = os.path.join(SKILLS_DIR, f"{skill_name}.md")
         content = read_file_safe(skill_path)
         if not content:
@@ -406,17 +434,11 @@ def load_skills(file_types: Set[str], files: Set[str], diff: str) -> Dict[str, s
     return skills
 
 
-def find_repo_config(repo_full_name: str) -> str:
-    repo_name = repo_full_name.split("/")[-1]
-    return read_file_safe(os.path.join(REPO_CONFIG_DIR, f"{repo_name}.md"))
-
-
 # ============================================================
 # 프롬프트 조립
 # ============================================================
 
-def build_prompt(diff: str, pr_info: dict, repo_full_name: str,
-                 file_types: Set[str], files: Set[str]) -> str:
+def build_prompt(diff: str, pr_info: dict, repo_full_name: str) -> str:
     sections = []
 
     # 1) 역할 + 리뷰 규칙 + 출력 형식 (review-prompt.md 통합 로드)
@@ -438,21 +460,33 @@ def build_prompt(diff: str, pr_info: dict, repo_full_name: str,
     if conventions:
         sections.append(f"## 공통 코딩 컨벤션\n\n{conventions}")
 
-    # 4) Skills (파일 타입별 선택 주입)
-    skills = load_skills(file_types, files, diff)
-    if skills:
-        skill_block = "\n\n".join(f"### {name}\n{content}" for name, content in skills.items())
-        sections.append(f"## 리뷰 참고 자료 (Skills)\n\n{skill_block}")
-        print(f"[INFO] 주입된 Skills: {list(skills.keys())}")
-    else:
-        print("[INFO] 주입된 Skills: 없음")
-
-    # 5) repo별 추가 규칙
+    # 4) repo별 설정 로드 (기술 스택 + 추가 규칙 + 제외 패턴 모두 포함)
     repo_config = find_repo_config(repo_full_name)
-    if repo_config:
-        sections.append(f"## 이 리포지토리 추가 규칙\n\n{repo_config}")
 
-    # 6) PR Diff (출력 규칙은 review-prompt.md에 포함되어 있음)
+    # 4-1) 기술 스택 선언 기반 Skills 로드
+    if repo_config:
+        skill_names = parse_skill_names(repo_config)
+        if skill_names:
+            skills = load_skills(skill_names)
+            if skills:
+                skill_block = "\n\n".join(
+                    f"### {name}\n{content}" for name, content in skills.items()
+                )
+                sections.append(f"## 리뷰 참고 자료 (Skills)\n\n{skill_block}")
+                print(f"[INFO] 주입된 Skills: {list(skills.keys())}")
+            else:
+                print("[INFO] 주입된 Skills: 없음 (파일 미존재)")
+        else:
+            print("[INFO] 기술 스택 선언 없음 → Skills 생략")
+
+        # 4-2) repo별 추가 규칙 (기술 스택 섹션 제외하고 나머지 내용 주입)
+        repo_rules = _extract_repo_rules(repo_config)
+        if repo_rules:
+            sections.append(f"## 이 리포지토리 추가 규칙\n\n{repo_rules}")
+    else:
+        print("[INFO] repo 설정 파일 없음 → Skills 및 추가 규칙 생략")
+
+    # 5) PR Diff
     diff_limited = diff[:MAX_DIFF_LENGTH]
     if len(diff) > MAX_DIFF_LENGTH:
         diff_limited += f"\n\n...(이하 {len(diff) - MAX_DIFF_LENGTH}자 생략)"
@@ -461,6 +495,29 @@ def build_prompt(diff: str, pr_info: dict, repo_full_name: str,
     sections.append(f"## PR Diff\n{backtick}diff\n{diff_limited}\n{backtick}")
 
     return "\n\n---\n\n".join(sections)
+
+
+def _extract_repo_rules(repo_config_content: str) -> str:
+    """repo config에서 '기술 스택' 섹션을 제외한 나머지 내용을 반환한다.
+    Skills는 별도로 주입되므로 프롬프트 중복을 방지한다.
+    """
+    lines = repo_config_content.split("\n")
+    result = []
+    skip_section = False
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "## 기술 스택":
+            skip_section = True
+            continue
+        # 다음 ## 섹션이 시작되면 스킵 종료
+        if skip_section and stripped.startswith("## "):
+            skip_section = False
+        if not skip_section:
+            result.append(line)
+
+    content = "\n".join(result).strip()
+    return content
 
 
 # ============================================================
@@ -599,11 +656,10 @@ def main():
         print("[WARN] 변경 사항 없음 → 종료")
         return
 
-    # 4. diff 분석
+    # 4. diff 분석 및 제외 패턴 필터링
     analysis = analyze_diff(diff)
     print(f"[INFO] 감지된 파일 타입: {sorted(analysis.file_types)}")
 
-    # repo별 제외 패턴 추가 필터링
     repo_config_content = find_repo_config(args.repo_full_name)
     exclude_patterns = parse_exclude_patterns(repo_config_content) if repo_config_content else []
     if exclude_patterns:
@@ -628,8 +684,6 @@ def main():
         analysis.filtered_diff,
         pr_info,
         args.repo_full_name,
-        analysis.file_types,
-        analysis.files,
     )
     print(f"[INFO] 최종 프롬프트 길이: {len(prompt)} chars")
 
