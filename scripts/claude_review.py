@@ -594,7 +594,6 @@ def call_claude(prompt: str) -> dict:
         )
         output = result.stdout.strip()
         print(f"[INFO] Claude 응답: {len(output)} chars")
-        print(f"[DEBUG] Claude 응답 전체:\n{output}")
         return extract_json(output)
 
     except subprocess.CalledProcessError as e:
