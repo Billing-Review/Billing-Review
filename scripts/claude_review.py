@@ -133,7 +133,7 @@ def verify_gh_auth() -> None:
 # ============================================================
 
 def run_gh(args: list) -> str:
-    result = subprocess.run(["gh"] + args, capture_output=True, text=True, encoding="utf-8")
+    result = subprocess.run(["gh"] + args, capture_output=True, encoding="utf-8")
     if result.returncode != 0:
         print(f"[ERROR] gh {' '.join(args)}\n  stderr: {result.stderr.strip()}", file=sys.stderr)
         sys.exit(1)
@@ -484,17 +484,15 @@ def build_prompt(diff: str, pr_info: dict, repo_full_name: str,
         "---\\n\\n"
         "### 🔴 반드시 수정 (Must Fix)\\n"
         "> 머지 전에 반드시 해결해야 하는 문제입니다.\\n\\n"
-        "**[파일명:라인번호]** - [문제 설명]\\n"
-        "💡 **제안**: [구체적인 개선 방향 또는 예시 코드]\\n\\n"
+        "**[파일명:라인번호]** - [문제가 무엇인지 1~2줄 텍스트만. 코드 예시 절대 포함 금지]\\n\\n"
         "---\\n\\n"
         "### 🟡 수정 권장 (Should Fix)\\n"
         "> 수정하지 않아도 동작하지만, 품질 향상을 위해 권장합니다.\\n\\n"
-        "**[파일명:라인번호]** - [문제 설명]\\n"
-        "💡 **제안**: [개선 방향]\\n\\n"
+        "**[파일명:라인번호]** - [문제가 무엇인지 1~2줄 텍스트만. 코드 예시 절대 포함 금지]\\n\\n"
         "---\\n\\n"
         "### 🔵 제안 사항 (Optional)\\n"
         "> 선택적으로 고려할 수 있는 개선 아이디어입니다.\\n\\n"
-        "- [파일명] - [제안 내용]\\n\\n"
+        "- [파일명] - [제안 내용. 코드 예시 없이 텍스트만]\\n\\n"
         "---\\n\\n"
         "### 📊 리뷰 요약\\n"
         "| 항목 | 평가 |\\n"
@@ -508,7 +506,8 @@ def build_prompt(diff: str, pr_info: dict, repo_full_name: str,
         "4. comments[].body: 문제 원인 + 개선 방향 상세히. 예시 코드 포함 권장. 줄바꿈은 \\n 사용\n"
         "5. comments[].severity: Must Fix → CRITICAL 또는 HIGH, Should Fix → MEDIUM 또는 LOW\n"
         "6. comments[].line: diff에서 + 로 시작하는 라인 번호만 사용\n"
-        "7. 모든 텍스트 한국어. 코드/파일명/기술용어는 영어 유지\n\n"
+        "7. 모든 텍스트 한국어. 코드/파일명/기술용어는 영어 유지\n"
+        "8. review 필드의 Must Fix / Should Fix / Optional 섹션에는 코드 블록(```)을 절대 포함하지 않는다. 코드 예시는 comments[].body 인라인 코멘트에만 작성한다.\n\n"
         "## JSON 형식\n"
         '{"review":"## 🤖 AI 코드 리뷰\\n\\n### 📋 전체 요약\\n...(전체 마크다운 리뷰)...","comments":[{"path":"파일경로","line":42,"severity":"HIGH","body":"문제 원인\\n\\n💡 **제안**: 개선 방향\\n```java\\n예시코드\\n```"}]}\n\n'
         "## PR Diff\n"
