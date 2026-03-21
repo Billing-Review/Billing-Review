@@ -266,7 +266,6 @@ def build_prompt(pr_info: dict, diff: str, repo_full_name: str) -> str:
 ## 리뷰 대상 Diff
 
 아래 diff를 위의 모든 규칙과 컨벤션을 기준으로 리뷰해주세요.
-
 ```diff
 {diff}
 ```
@@ -276,13 +275,44 @@ def build_prompt(pr_info: dict, diff: str, repo_full_name: str) -> str:
 
 
 # ============================================================
-# Claude 실행
+# Claude 실행 (OAuth 기반 Self-hosted Runner용)
 # ============================================================
 
 def run_claude(prompt: str) -> str:
     """Claude Code CLI를 실행하여 리뷰 결과를 받는다."""
+
+    # Runner의 실제 HOME 경로 확인 (OAuth 토큰 위치 탐색)
+    home = os.environ.get("HOME", "")
+    print(f"[INFO] HOME={home}", file=sys.stderr)
+    print(f"[INFO] USER={os.environ.get('USER', 'unknown')}", file=sys.stderr)
+
+    # OAuth 토큰 파일 존재 여부 확인
+    token_candidates = [
+        Path(home) / ".claude" / "credentials.json",
+        Path(home) / ".config" / "claude" / "credentials.json",
+        Path(home) / ".claude.json",
+    ]
+    found_token = False
+    for candidate in token_candidates:
+        if candidate.exists():
+            print(f"[INFO] Claude token found: {candidate}", file=sys.stderr)
+            found_token = True
+            break
+    if not found_token:
+        print("[WARN] No Claude OAuth token file found. CLI may fail.", file=sys.stderr)
+        for c in token_candidates:
+            print(f"  checked: {c}", file=sys.stderr)
+
     print(f"[INFO] Running Claude Code (timeout: {CLAUDE_TIMEOUT}s)...", file=sys.stderr)
     print(f"[INFO] Prompt length: {len(prompt)} chars", file=sys.stderr)
+
+    # claude CLI가 존재하는지 확인
+    which = subprocess.run(["which", "claude"], capture_output=True, text=True)
+    if which.returncode != 0:
+        print("[ERROR] 'claude' command not found in PATH", file=sys.stderr)
+        print(f"  PATH={os.environ.get('PATH', '')}", file=sys.stderr)
+        return "❌ Claude CLI가 PATH에 없습니다."
+    print(f"[INFO] claude binary: {which.stdout.strip()}", file=sys.stderr)
 
     try:
         result = subprocess.run(
@@ -291,15 +321,22 @@ def run_claude(prompt: str) -> str:
             capture_output=True,
             text=True,
             timeout=CLAUDE_TIMEOUT,
+            env={**os.environ, "HOME": home},  # HOME 명시적으로 전달
         )
     except subprocess.TimeoutExpired:
         print("[ERROR] Claude timed out", file=sys.stderr)
         return "⏰ Claude 리뷰가 시간 초과되었습니다. diff가 너무 크거나 네트워크 문제일 수 있습니다."
+    except FileNotFoundError:
+        print("[ERROR] 'claude' command not found", file=sys.stderr)
+        return "❌ Claude CLI가 설치되어 있지 않습니다."
+
+    print(f"[DEBUG] returncode: {result.returncode}", file=sys.stderr)
+    print(f"[DEBUG] stdout length: {len(result.stdout)}", file=sys.stderr)
+    print(f"[DEBUG] stderr: {result.stderr[:2000]}", file=sys.stderr)  # 넉넉하게 출력
 
     if result.returncode != 0:
         print(f"[ERROR] Claude exited with code {result.returncode}", file=sys.stderr)
-        print(f"  stderr: {result.stderr[:500]}", file=sys.stderr)
-        return f"❌ Claude 실행 실패 (exit code: {result.returncode})\n```\n{result.stderr[:300]}\n```"
+        return f"❌ Claude 실행 실패 (exit code: {result.returncode})\n```\n{result.stderr[:500]}\n```"
 
     output = result.stdout.strip()
     if not output:
