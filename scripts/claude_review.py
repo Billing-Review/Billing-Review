@@ -430,20 +430,28 @@ def build_prompt(diff: str, pr_info: dict, repo_full_name: str,
         sections.append(f"## 이 리포지토리 추가 규칙\n\n{repo_config}")
 
     # 5) 출력 규칙 + diff
+    # ↓ backtick을 변수로 분리해서 f-string 파싱 오류 방지
     diff_limited = diff[:MAX_DIFF_LENGTH]
     if len(diff) > MAX_DIFF_LENGTH:
         diff_limited += f"\n\n...(이하 {len(diff) - MAX_DIFF_LENGTH}자 생략)"
 
-    sections.append(f"""## 출력 규칙 (필수)
-1. 순수 JSON만 출력 (코드블록 사용 금지)
-2. 코멘트는 최대 5개까지만
-3. body는 한 줄, 100자 이내
-4. line은 diff에서 + 로 시작하는 라인 번호만 사용
+    backtick = "`" * 3
+    json_example = '{"summary":"요약 2문장","comments":[{"path":"파일경로","line":숫자,"severity":"HIGH","body":"이모지 내용"}]}'
 
-## JSON 형식
-{{"summary":"요약 2문장","comments":[{{"path":"파일경로","line":숫자,"severity":"HIGH","body":"이모지 내용"}}]}}
+    output_section = (
+        "## 출력 규칙 (필수)\n"
+        "1. 순수 JSON만 출력 (코드블록 사용 금지)\n"
+        "2. 코멘트는 최대 5개까지만\n"
+        "3. body는 한 줄, 100자 이내\n"
+        "4. line은 diff에서 + 로 시작하는 라인 번호만 사용\n\n"
+        "## JSON 형식\n"
+        f"{json_example}\n\n"
+        "severity별 이모지: CRITICAL=🔴 HIGH=🟠 MEDIUM=🟡 LOW=🔵 SUGGESTION=💡\n\n"
+        "## PR Diff\n"
+        f"{backtick}diff\n"
+        f"{diff_limited}\n"
+        f"{backtick}"
+    )
+    sections.append(output_section)
 
-severity별 이모지: CRITICAL=🔴 HIGH=🟠 MEDIUM=🟡 LOW=🔵 SUGGESTION=💡
-
-## PR Diff
-```diff
+    return "\n\n---\n\n".join(sections)
