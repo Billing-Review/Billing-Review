@@ -133,7 +133,7 @@ def verify_gh_auth() -> None:
 # ============================================================
 
 def run_gh(args: list) -> str:
-    result = subprocess.run(["gh"] + args, capture_output=True, text=True)
+    result = subprocess.run(["gh"] + args, capture_output=True, text=True, encoding="utf-8")
     if result.returncode != 0:
         print(f"[ERROR] gh {' '.join(args)}\n  stderr: {result.stderr.strip()}", file=sys.stderr)
         sys.exit(1)
@@ -171,7 +171,7 @@ def get_existing_claude_review_commit(pr_number: str, pr_info: dict) -> Optional
                 "--paginate", "-q",
                 '.[] | select(.body | contains("🤖 AI 코드 리뷰"))',
             ],
-            capture_output=True, text=True,
+            capture_output=True, encoding="utf-8",
         )
         last_commit = None
         for line in result.stdout.strip().split("\n"):
@@ -193,7 +193,7 @@ def get_existing_claude_review_commit(pr_number: str, pr_info: dict) -> Optional
 def get_incremental_diff(pr_number: str, since_commit: str, head_commit: str) -> Optional[str]:
     result = subprocess.run(
         ["git", "diff", f"{since_commit}..{head_commit}"],
-        capture_output=True, text=True,
+        capture_output=True, encoding="utf-8",
     )
     if result.returncode == 0 and result.stdout.strip():
         return result.stdout
@@ -252,7 +252,7 @@ def post_review(pr_number: str, pr_info: dict, review_data: dict, diff_mappings:
                 "--input", "-",
             ],
             input=json.dumps(payload),
-            capture_output=True, text=True, check=True,
+            capture_output=True, encoding="utf-8", check=True,
         )
         print(f"[INFO] Code review 게시 완료 (인라인 {len(valid_comments)}개)")
     except subprocess.CalledProcessError as e:
@@ -422,7 +422,6 @@ def build_prompt(diff: str, pr_info: dict, repo_full_name: str,
     sections = []
 
     # 1) 역할 정의
-    # prompt-template.md 있으면 사용, 없으면 기본값
     template = read_file_safe(PROMPT_TEMPLATE_PATH)
     if template:
         sections.append(template)
@@ -525,85 +524,41 @@ def build_prompt(diff: str, pr_info: dict, repo_full_name: str,
 # ============================================================
 # Claude 호출
 # ============================================================
+
 def extract_json(output: str) -> dict:
     """Claude 응답에서 JSON을 추출한다."""
 
     # 1) ```json ... ``` 블록 우선 시도
     m = re.search(r"```json\s*([\s\S]*?)\s*```", output)
     if m:
-        candidate = m.group(1).strip()
         try:
-            return json.loads(candidate)
+            return json.loads(m.group(1).strip())
         except json.JSONDecodeError:
-            pass  # fallback으로 넘어감
+            pass
 
     # 2) ``` ... ``` 블록 시도
     m = re.search(r"```\s*([\s\S]*?)\s*```", output)
     if m:
-        candidate = m.group(1).strip()
         try:
-            return json.loads(candidate)
+            return json.loads(m.group(1).strip())
         except json.JSONDecodeError:
             pass
 
-    # 3) { 위치부터 JSONDecoder로 정확하게 파싱 (핵심 수정)
+    # 3) JSONDecoder.raw_decode로 정확하게 파싱
+    #    - 직접 구현한 depth 카운팅 대신 Python 표준 라이브러리 사용
+    #    - 이중 이스케이프(\\n, \\t), 한글 유니코드 등 모두 정확히 처리
     start = output.find("{")
     if start != -1:
         decoder = json.JSONDecoder()
         try:
-            # raw_decode는 문자열 중간부터 파싱 가능하고,
-            # 내부 이스케이프/중첩 구조를 Python이 직접 처리함
             obj, _ = decoder.raw_decode(output, start)
             return obj
         except json.JSONDecodeError as e:
             print(f"[WARN] JSONDecoder 파싱 실패: {e}", file=sys.stderr)
-            print(f"  실패 위치: {e.pos}, 앞뒤 컨텍스트: {output[max(0,e.pos-50):e.pos+50]!r}", file=sys.stderr)
+            print(f"  실패 위치 컨텍스트: {output[max(0, e.pos-80):e.pos+80]!r}", file=sys.stderr)
 
     print("[WARN] JSON 추출 실패 → fallback", file=sys.stderr)
     return {"review": output[:MAX_SUMMARY_FALLBACK_LENGTH], "comments": []}
-
-# def extract_json(output: str) -> dict:
-#     """Claude 응답에서 JSON을 추출한다."""
-#     m = re.search(r"```json\s*([\s\S]*?)\s*```", output)
-#     if m:
-#         output = m.group(1).strip()
-#     else:
-#         m = re.search(r"```\s*([\s\S]*?)\s*```", output)
-#         if m:
-#             output = m.group(1).strip()
-#         else:
-#             start = output.find("{")
-#             if start != -1:
-#                 depth, in_str, escape = 0, False, False
-#                 for i, ch in enumerate(output[start:], start):
-#                     if escape:
-#                         escape = False
-#                         continue
-#                     if ch == "\\":
-#                         escape = True
-#                         continue
-#                     if ch == '"':
-#                         in_str = not in_str
-#                         continue
-#                     if in_str:
-#                         continue
-#                     if ch == "{":
-#                         depth += 1
-#                     elif ch == "}":
-#                         depth -= 1
-#                         if depth == 0:
-#                             output = output[start:i + 1]
-#                             break
-#
-#     if output.startswith("{"):
-#         try:
-#             return json.loads(output)
-#         except json.JSONDecodeError as e:
-#             print(f"[WARN] JSON 파싱 실패: {e}", file=sys.stderr)
-#             print(f"  첫 500자: {output[:500]}", file=sys.stderr)
-#
-#     print("[WARN] JSON 추출 실패 → fallback", file=sys.stderr)
-#     return {"review": output[:MAX_SUMMARY_FALLBACK_LENGTH], "comments": []}
 
 
 def call_claude(prompt: str) -> dict:
@@ -611,19 +566,31 @@ def call_claude(prompt: str) -> dict:
     print(f"[INFO] Claude 호출 (model={CLAUDE_MODEL}, timeout={CLAUDE_TIMEOUT}s)")
     print(f"[INFO] 프롬프트 길이: {len(prompt)} chars")
 
+    # GitHub Actions 환경에서 UTF-8 인코딩 강제
+    env = {
+        **os.environ,
+        "HOME": home,
+        "PYTHONIOENCODING": "utf-8",
+        "LANG": "en_US.UTF-8",
+        "LC_ALL": "en_US.UTF-8",
+    }
+
     try:
         result = subprocess.run(
             [
                 "claude", "-p", prompt,
                 "--model", CLAUDE_MODEL,
             ],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            check=True,
             timeout=CLAUDE_TIMEOUT,
-            env={**os.environ, "HOME": home},
+            encoding="utf-8",   # text=True 대신 인코딩 명시
+            errors="replace",   # 깨진 문자 대체 (크래시 방지)
+            env=env,
         )
         output = result.stdout.strip()
         print(f"[INFO] Claude 응답: {len(output)} chars")
-        print(f"[DEBUG] Claude 응답 전체:\n{output}")  # ← 추가
+        print(f"[DEBUG] Claude 응답 전체:\n{output}")
         return extract_json(output)
 
     except subprocess.CalledProcessError as e:
