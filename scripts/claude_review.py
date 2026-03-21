@@ -215,4 +215,496 @@ def post_review(pr_number: str, pr_info: dict, review_data: dict, diff_mappings:
         path, line = c.get("path", ""), c.get("line", 0)
         if path in diff_mappings and line in diff_mappings[path]:
             emoji = SEVERITY_EMOJI.get(c.get("severity", ""), "💡")
-            inline_body = c.get("body", "").replace("\\n", "\n
+            inline_body = c.get("body", "").replace("\\n", "\n")
+            valid_comments.append({
+                "path": path,
+                "line": line,
+                "body": f"{emoji} **{c.get('severity', '')}**\n\n{inline_body}",
+            })
+        else:
+            skipped.append(f"  - {path}:{line} (not in diff)")
+
+    if skipped:
+        print(f"[WARN] 인라인 코멘트 {len(skipped)}개 스킵 (diff 범위 밖):")
+        for s in skipped[:5]:
+            print(s)
+
+    print(f"[INFO] 유효한 인라인 코멘트: {len(valid_comments)}개")
+
+    # review body \n → 실제 줄바꿈 변환
+    review_body = review_data.get("review", "## 🤖 AI 코드 리뷰\n\n리뷰가 완료되었습니다.")
+    review_body = review_body.replace("\\n", "\n").replace("\\t", "\t")
+
+    payload = {
+        "commit_id": commit_sha,
+        "body": review_body,
+        "event": "COMMENT",
+        "comments": valid_comments,
+    }
+
+    try:
+        subprocess.run(
+            [
+                "gh", "api",
+                f"repos/{owner}/{repo}/pulls/{pr_number}/reviews",
+                "-X", "POST",
+                "-H", "Accept: application/vnd.github+json",
+                "--input", "-",
+            ],
+            input=json.dumps(payload),
+            capture_output=True, text=True, check=True,
+        )
+        print(f"[INFO] Code review 게시 완료 (인라인 {len(valid_comments)}개)")
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] 리뷰 게시 실패: {e.stderr}", file=sys.stderr)
+        sys.exit(1)
+
+
+# ============================================================
+# Diff 처리
+# ============================================================
+
+def analyze_diff(diff: str) -> DiffAnalysis:
+    """diff 1회 순회 → 필터링된 diff + 파일 목록 + 파일 타입 동시 추출."""
+    files: Set[str] = set()
+    file_types: Set[str] = set()
+    filtered_lines = []
+    include_file = False
+
+    for line in diff.split("\n"):
+        if line.startswith("diff --git"):
+            match = DIFF_GIT_PATTERN.search(line)
+            if match:
+                file_path = match.group(2)
+                files.add(file_path)
+                ext = os.path.splitext(file_path)[1]
+                file_type = EXTENSION_TO_FILE_TYPE.get(ext)
+                if file_type:
+                    file_types.add(file_type)
+                include_file = ext in ALL_REVIEWABLE_EXTENSIONS
+            else:
+                include_file = False
+        if include_file:
+            filtered_lines.append(line)
+
+    return DiffAnalysis(
+        filtered_diff="\n".join(filtered_lines),
+        files=files,
+        file_types=file_types,
+    )
+
+
+def parse_exclude_patterns(repo_config_content: str) -> list:
+    """repo별 md에서 '리뷰 제외' 섹션의 패턴을 파싱한다."""
+    patterns = []
+    in_section = False
+    for line in repo_config_content.split("\n"):
+        stripped = line.strip()
+        if "리뷰 제외" in stripped or "리뷰에서 제외" in stripped:
+            in_section = True
+            continue
+        if in_section:
+            if stripped.startswith("#"):
+                break
+            if stripped.startswith("- "):
+                p = stripped[2:].strip().strip("`")
+                if p:
+                    patterns.append(p)
+    return patterns
+
+
+def filter_diff_by_patterns(diff: str, patterns: list) -> str:
+    """제외 패턴에 해당하는 파일 diff를 제거한다."""
+    from fnmatch import fnmatch
+    if not patterns:
+        return diff
+    filtered, skip = [], False
+    for line in diff.split("\n"):
+        if line.startswith("diff --git"):
+            file_path = line.split(" b/")[-1] if " b/" in line else ""
+            skip = any(fnmatch(file_path, p) for p in patterns)
+        if not skip:
+            filtered.append(line)
+    return "\n".join(filtered)
+
+
+def parse_diff_line_mapping(diff: str) -> dict:
+    """diff에서 파일별 변경된 라인 번호를 추출한다 (인라인 코멘트 유효성 검증용)."""
+    mappings: Dict[str, dict] = {}
+    current_file = None
+    current_line = 0
+    for line in diff.split("\n"):
+        if line.startswith("diff --git"):
+            match = DIFF_GIT_PATTERN.search(line)
+            if match:
+                current_file = match.group(2)
+                mappings[current_file] = {}
+        elif line.startswith("@@"):
+            match = re.search(r"\+(\d+)", line)
+            if match:
+                current_line = int(match.group(1))
+        elif current_file:
+            if not line.startswith("-"):
+                if line.startswith("+"):
+                    mappings[current_file][current_line] = True
+                current_line += 1
+    return mappings
+
+
+# ============================================================
+# 설정 파일 로드
+# ============================================================
+
+def read_file_safe(path: str) -> str:
+    p = Path(path)
+    if p.exists():
+        content = p.read_text(encoding="utf-8").strip()
+        print(f"[INFO] Loaded: {path}")
+        return content
+    print(f"[WARN] Not found: {path}", file=sys.stderr)
+    return ""
+
+
+def load_skills(file_types: Set[str], files: Set[str], diff: str) -> Dict[str, str]:
+    """감지된 파일 타입에 해당하는 skill만 선택적으로 로드한다."""
+    skills: Dict[str, str] = {}
+    total_chars = 0
+
+    for file_type in sorted(file_types):
+        skill_name = FILE_TYPE_TO_SKILL.get(file_type)
+        if not skill_name:
+            continue
+
+        # yaml → github-actions: .github/ 경로 파일이 있을 때만
+        if file_type == "yaml" and not any(".github/" in f for f in files):
+            continue
+
+        # xml → mybatis or xml-config
+        if file_type == "xml":
+            has_mybatis = any(
+                kw in diff for kw in ["<mapper", "<select", "<insert", "<update", "<delete", "mybatis"]
+            )
+            skill_name = "mybatis" if has_mybatis else "xml-config"
+
+        # 중복 스킵 (vue + javascript 둘 다 감지된 경우)
+        if skill_name in skills:
+            continue
+
+        skill_path = os.path.join(SKILLS_DIR, f"{skill_name}.md")
+        content = read_file_safe(skill_path)
+        if not content:
+            continue
+
+        if len(content) > MAX_SKILL_CHARS:
+            content = content[:MAX_SKILL_CHARS] + "\n...(이하 생략)"
+
+        if total_chars + len(content) > MAX_SKILLS_TOTAL:
+            print(f"[WARN] Skills 총 길이 초과로 '{skill_name}' 생략", file=sys.stderr)
+            break
+
+        skills[skill_name] = content
+        total_chars += len(content)
+
+    return skills
+
+
+def find_repo_config(repo_full_name: str) -> str:
+    repo_name = repo_full_name.split("/")[-1]
+    return read_file_safe(os.path.join(REPO_CONFIG_DIR, f"{repo_name}.md"))
+
+
+# ============================================================
+# 프롬프트 조립
+# ============================================================
+
+def build_prompt(diff: str, pr_info: dict, repo_full_name: str,
+                 file_types: Set[str], files: Set[str]) -> str:
+    sections = []
+
+    # 1) 역할 정의
+    # prompt-template.md 있으면 사용, 없으면 기본값
+    template = read_file_safe(PROMPT_TEMPLATE_PATH)
+    if template:
+        sections.append(template)
+    else:
+        sections.append(
+            "당신은 숙련된 시니어 소프트웨어 엔지니어입니다.\n"
+            "Pull Request의 변경사항을 리뷰하고, 코드 품질 향상을 위한 구체적이고 실질적인 피드백을 제공합니다.\n"
+            "비판보다는 개선 방향을 제시하는 건설적인 리뷰를 작성합니다.\n"
+            "모든 리뷰는 한국어로 작성합니다. 코드, 파일명, 기술 용어는 영어 원문을 유지합니다."
+        )
+
+    # 2) PR 정보
+    sections.append(
+        f"## PR 정보\n"
+        f"- 제목: {pr_info.get('title', '')}\n"
+        f"- 설명: {pr_info.get('body', '없음') or '없음'}"
+    )
+
+    # 3) 공통 규칙
+    base_rules = read_file_safe(BASE_RULES_PATH)
+    if base_rules:
+        sections.append(f"## 공통 리뷰 규칙\n\n{base_rules}")
+
+    conventions = read_file_safe(CONVENTIONS_PATH)
+    if conventions:
+        sections.append(f"## 공통 코딩 컨벤션\n\n{conventions}")
+
+    # 4) Skills (파일 타입별 선택 주입)
+    skills = load_skills(file_types, files, diff)
+    if skills:
+        skill_block = "\n\n".join(f"### {name}\n{content}" for name, content in skills.items())
+        sections.append(f"## 리뷰 참고 자료 (Skills)\n\n{skill_block}")
+        print(f"[INFO] 주입된 Skills: {list(skills.keys())}")
+    else:
+        print("[INFO] 주입된 Skills: 없음")
+
+    # 5) repo별 추가 규칙
+    repo_config = find_repo_config(repo_full_name)
+    if repo_config:
+        sections.append(f"## 이 리포지토리 추가 규칙\n\n{repo_config}")
+
+    # 6) 출력 규칙 + diff
+    diff_limited = diff[:MAX_DIFF_LENGTH]
+    if len(diff) > MAX_DIFF_LENGTH:
+        diff_limited += f"\n\n...(이하 {len(diff) - MAX_DIFF_LENGTH}자 생략)"
+
+    backtick = "`" * 3
+
+    output_section = (
+        "## 출력 규칙 (필수)\n"
+        "1. 순수 JSON만 출력 (코드블록 사용 금지)\n"
+        "2. review 필드: 아래 마크다운 형식으로 작성. 줄바꿈은 \\n 사용\n\n"
+        "## review 필드 형식\n"
+        "## 🤖 AI 코드 리뷰\\n\\n"
+        "### 📋 전체 요약\\n"
+        "[PR 전체에 대한 2~3문장 요약. 변경 목적과 전반적인 품질 평가 포함]\\n\\n"
+        "---\\n\\n"
+        "### ✅ 잘된 점\\n"
+        "- [잘된 점을 구체적으로. 없으면 이 섹션 생략]\\n\\n"
+        "---\\n\\n"
+        "### 🔴 반드시 수정 (Must Fix)\\n"
+        "> 머지 전에 반드시 해결해야 하는 문제입니다.\\n\\n"
+        "**[파일명:라인번호]** - [문제 설명]\\n"
+        "💡 **제안**: [구체적인 개선 방향 또는 예시 코드]\\n\\n"
+        "---\\n\\n"
+        "### 🟡 수정 권장 (Should Fix)\\n"
+        "> 수정하지 않아도 동작하지만, 품질 향상을 위해 권장합니다.\\n\\n"
+        "**[파일명:라인번호]** - [문제 설명]\\n"
+        "💡 **제안**: [개선 방향]\\n\\n"
+        "---\\n\\n"
+        "### 🔵 제안 사항 (Optional)\\n"
+        "> 선택적으로 고려할 수 있는 개선 아이디어입니다.\\n\\n"
+        "- [파일명] - [제안 내용]\\n\\n"
+        "---\\n\\n"
+        "### 📊 리뷰 요약\\n"
+        "| 항목 | 평가 |\\n"
+        "|------|------|\\n"
+        "| 코드 정확성 | 🟢 양호 / 🟡 주의 / 🔴 문제 (한줄 설명) |\\n"
+        "| 보안 | 🟢 양호 / 🟡 주의 / 🔴 문제 (한줄 설명) |\\n"
+        "| 성능 | 🟢 양호 / 🟡 주의 / 🔴 문제 (한줄 설명) |\\n"
+        "| 테스트 | 🟢 양호 / 🟡 주의 / 🔴 문제 (한줄 설명) |\\n"
+        "| 가독성 | 🟢 양호 / 🟡 주의 / 🔴 문제 (한줄 설명) |\\n\n"
+        "3. comments 필드: Must Fix / Should Fix 항목 중 특정 라인을 지정할 수 있는 것만 인라인 코멘트로 추가. 최대 10개\n"
+        "4. comments[].body: 문제 원인 + 개선 방향 상세히. 예시 코드 포함 권장. 줄바꿈은 \\n 사용\n"
+        "5. comments[].severity: Must Fix → CRITICAL 또는 HIGH, Should Fix → MEDIUM 또는 LOW\n"
+        "6. comments[].line: diff에서 + 로 시작하는 라인 번호만 사용\n"
+        "7. 모든 텍스트 한국어. 코드/파일명/기술용어는 영어 유지\n\n"
+        "## JSON 형식\n"
+        '{"review":"## 🤖 AI 코드 리뷰\\n\\n### 📋 전체 요약\\n...(전체 마크다운 리뷰)...","comments":[{"path":"파일경로","line":42,"severity":"HIGH","body":"문제 원인\\n\\n💡 **제안**: 개선 방향\\n```java\\n예시코드\\n```"}]}\n\n'
+        "## PR Diff\n"
+        f"{backtick}diff\n"
+        f"{diff_limited}\n"
+        f"{backtick}"
+    )
+    sections.append(output_section)
+
+    return "\n\n---\n\n".join(sections)
+
+
+# ============================================================
+# Claude 호출
+# ============================================================
+
+def extract_json(output: str) -> dict:
+    """Claude 응답에서 JSON을 추출한다."""
+    m = re.search(r"```json\s*([\s\S]*?)\s*```", output)
+    if m:
+        output = m.group(1).strip()
+    else:
+        m = re.search(r"```\s*([\s\S]*?)\s*```", output)
+        if m:
+            output = m.group(1).strip()
+        else:
+            start = output.find("{")
+            if start != -1:
+                depth, in_str, escape = 0, False, False
+                for i, ch in enumerate(output[start:], start):
+                    if escape:
+                        escape = False
+                        continue
+                    if ch == "\\":
+                        escape = True
+                        continue
+                    if ch == '"':
+                        in_str = not in_str
+                        continue
+                    if in_str:
+                        continue
+                    if ch == "{":
+                        depth += 1
+                    elif ch == "}":
+                        depth -= 1
+                        if depth == 0:
+                            output = output[start:i + 1]
+                            break
+
+    if output.startswith("{"):
+        try:
+            return json.loads(output)
+        except json.JSONDecodeError as e:
+            print(f"[WARN] JSON 파싱 실패: {e}", file=sys.stderr)
+            print(f"  첫 500자: {output[:500]}", file=sys.stderr)
+
+    print("[WARN] JSON 추출 실패 → fallback", file=sys.stderr)
+    return {"review": output[:MAX_SUMMARY_FALLBACK_LENGTH], "comments": []}
+
+
+def call_claude(prompt: str) -> dict:
+    home = os.path.expanduser("~")
+    print(f"[INFO] Claude 호출 (model={CLAUDE_MODEL}, timeout={CLAUDE_TIMEOUT}s)")
+    print(f"[INFO] 프롬프트 길이: {len(prompt)} chars")
+
+    try:
+        result = subprocess.run(
+            [
+                "claude", "-p", prompt,
+                "--model", CLAUDE_MODEL,
+                "--max-tokens", "8096",
+            ],
+            capture_output=True, text=True, check=True,
+            timeout=CLAUDE_TIMEOUT,
+            env={**os.environ, "HOME": home},
+        )
+        output = result.stdout.strip()
+        print(f"[INFO] Claude 응답: {len(output)} chars")
+        return extract_json(output)
+
+    except subprocess.CalledProcessError as e:
+        err = (e.stdout or "") + (e.stderr or "")
+        if "Not logged in" in err or "/login" in err:
+            print("[ERROR] Claude 인증 실패. CLAUDE_CODE_OAUTH_TOKEN 또는 claude login 필요", file=sys.stderr)
+        else:
+            print(f"[ERROR] Claude CLI 실패 (exit {e.returncode})", file=sys.stderr)
+            print(f"  stdout: {e.stdout[:500]}", file=sys.stderr)
+            print(f"  stderr: {e.stderr[:500]}", file=sys.stderr)
+        sys.exit(1)
+    except subprocess.TimeoutExpired:
+        print(f"[ERROR] Claude 타임아웃 ({CLAUDE_TIMEOUT}s)", file=sys.stderr)
+        sys.exit(1)
+    except FileNotFoundError:
+        print("[ERROR] claude 명령어 없음. npm install -g @anthropic-ai/claude-code", file=sys.stderr)
+        sys.exit(1)
+
+
+# ============================================================
+# 메인
+# ============================================================
+
+def main():
+    parser = argparse.ArgumentParser(description="Claude PR Review")
+    parser.add_argument("pr_number", help="PR 번호")
+    parser.add_argument("repo_full_name", help="org/repo 형식 (예: dev-team/payment-service)")
+    parser.add_argument("--dry-run", action="store_true", help="PR 코멘트 없이 결과만 출력")
+    args = parser.parse_args()
+
+    gh_host = os.environ.get("GH_HOST", "github.com")
+    os.environ["GH_HOST"] = gh_host
+
+    verify_gh_auth()
+    verify_claude_auth()
+
+    print(f"[INFO] === Claude PR Review ===")
+    print(f"[INFO] PR: #{args.pr_number} in {args.repo_full_name}")
+    print(f"[INFO] Dry run: {args.dry_run}")
+
+    # 1. PR 정보
+    pr_info = get_pr_info(args.pr_number)
+    print(f"[INFO] commit: {pr_info['commit_sha'][:8]}")
+    print(f"[INFO] title: {pr_info['title']}")
+
+    # 2. 이전 리뷰 커밋 조회
+    last_commit = get_existing_claude_review_commit(args.pr_number, pr_info)
+    if last_commit:
+        print(f"[INFO] 이전 리뷰 커밋: {last_commit[:8]}")
+    else:
+        print("[INFO] 이전 리뷰 없음 → 전체 diff 사용")
+
+    # 3. diff 수집 (incremental 우선)
+    diff = None
+    if last_commit and last_commit != pr_info["commit_sha"]:
+        diff = get_incremental_diff(args.pr_number, last_commit, pr_info["commit_sha"])
+        if diff:
+            print("[INFO] Incremental diff 사용")
+    if not diff:
+        diff = get_pr_diff(args.pr_number)
+        print("[INFO] 전체 diff 사용")
+
+    if not diff.strip():
+        print("[WARN] 변경 사항 없음 → 종료")
+        return
+
+    # 4. diff 분석
+    analysis = analyze_diff(diff)
+    print(f"[INFO] 감지된 파일 타입: {sorted(analysis.file_types)}")
+
+    # repo별 제외 패턴 추가 필터링
+    repo_config_content = find_repo_config(args.repo_full_name)
+    exclude_patterns = parse_exclude_patterns(repo_config_content) if repo_config_content else []
+    if exclude_patterns:
+        print(f"[INFO] repo 제외 패턴: {exclude_patterns}")
+        analysis = DiffAnalysis(
+            filtered_diff=filter_diff_by_patterns(analysis.filtered_diff, exclude_patterns),
+            files=analysis.files,
+            file_types=analysis.file_types,
+        )
+
+    if not analysis.filtered_diff.strip():
+        print("[WARN] 필터링 후 리뷰 대상 없음 → 종료")
+        return
+
+    print(f"[INFO] 필터링된 diff 크기: {len(analysis.filtered_diff)} chars")
+
+    # diff 라인 매핑
+    diff_mappings = parse_diff_line_mapping(diff)
+
+    # 5. 프롬프트 조립
+    prompt = build_prompt(
+        analysis.filtered_diff,
+        pr_info,
+        args.repo_full_name,
+        analysis.file_types,
+        analysis.files,
+    )
+    print(f"[INFO] 최종 프롬프트 길이: {len(prompt)} chars")
+
+    # 6. Claude 호출
+    review_data = call_claude(prompt)
+
+    print(f"[INFO] === 리뷰 결과 ===")
+    review_preview = review_data.get("review", "")[:200].replace("\n", " ")
+    print(f"[INFO] Review 미리보기: {review_preview}...")
+    print(f"[INFO] Comments: {len(review_data.get('comments', []))}개")
+    for i, c in enumerate(review_data.get("comments", []), 1):
+        print(f"  [{i}] {c.get('severity')} {c.get('path')}:{c.get('line')} - {c.get('body', '')[:60]}")
+
+    # 7. 게시
+    if args.dry_run:
+        print("[INFO] Dry run → PR 코멘트 생략")
+        print(json.dumps(review_data, ensure_ascii=False, indent=2))
+    else:
+        post_review(args.pr_number, pr_info, review_data, diff_mappings)
+
+
+if __name__ == "__main__":
+    main()
