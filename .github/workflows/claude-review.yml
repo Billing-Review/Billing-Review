@@ -55,11 +55,18 @@ jobs:
             echo "::error::Claude Code CLI가 이 Runner에 설치되어 있지 않습니다."
             exit 1
           fi
-
+      - name: Debug
+        run: |
+          echo "HOME=$HOME"
+          echo "USER=$(whoami)"
+          ls ~/.claude/ 2>/dev/null || echo "~/.claude not found"
+          ls ~/.config/claude/ 2>/dev/null || echo "~/.config/claude not found"
+          
       - name: 🤖 Claude Code Review
         env:
           SHARED_CONFIG_DIR: .shared-config/review-config
           GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
+          HOME: /User/nhn
         run: |
           python3 .shared-config/scripts/claude_review.py \
             "${{ inputs.pr_number }}" \
