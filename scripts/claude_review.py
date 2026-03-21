@@ -7,9 +7,8 @@ Claude PR Review Script
 
 디렉토리 구조 (Organization .github 리포지토리):
     review-config/
-    ├── base-rules.md              ← 공통 리뷰 규칙
+    ├── review-prompt.md           ← 역할 + 리뷰 규칙 + 출력 형식 통합
     ├── conventions.md             ← 공통 코딩 컨벤션
-    ├── review-prompt-template.md         ← Claude 역할/톤 정의 (선택)
     ├── skills/                    ← 파일 타입별 Skills (선택)
     │   ├── java-spring.md
     │   ├── mybatis.md
@@ -44,11 +43,10 @@ from typing import Dict, Optional, Set
 
 SHARED_CONFIG_DIR = os.environ.get("SHARED_CONFIG_DIR", ".shared-config/review-config")
 
-BASE_RULES_PATH      = os.path.join(SHARED_CONFIG_DIR, "base-rules.md")
-CONVENTIONS_PATH     = os.path.join(SHARED_CONFIG_DIR, "conventions.md")
-PROMPT_TEMPLATE_PATH = os.path.join(SHARED_CONFIG_DIR, "review-prompt-template.md")
-SKILLS_DIR           = os.path.join(SHARED_CONFIG_DIR, "skills")
-REPO_CONFIG_DIR      = os.path.join(SHARED_CONFIG_DIR, "repo")
+REVIEW_PROMPT_PATH = os.path.join(SHARED_CONFIG_DIR, "review-prompt.md")  # 역할 + 규칙 + 출력형식 통합
+CONVENTIONS_PATH   = os.path.join(SHARED_CONFIG_DIR, "conventions.md")
+SKILLS_DIR         = os.path.join(SHARED_CONFIG_DIR, "skills")
+REPO_CONFIG_DIR    = os.path.join(SHARED_CONFIG_DIR, "repo")
 
 MAX_DIFF_LENGTH  = int(os.environ.get("MAX_DIFF_LENGTH", "100000"))
 MAX_SKILL_CHARS  = int(os.environ.get("MAX_SKILL_CHARS", "5000"))
@@ -421,17 +419,12 @@ def build_prompt(diff: str, pr_info: dict, repo_full_name: str,
                  file_types: Set[str], files: Set[str]) -> str:
     sections = []
 
-    # 1) 역할 정의
-    template = read_file_safe(PROMPT_TEMPLATE_PATH)
-    if template:
-        sections.append(template)
-    else:
-        sections.append(
-            "당신은 숙련된 시니어 소프트웨어 엔지니어입니다.\n"
-            "Pull Request의 변경사항을 리뷰하고, 코드 품질 향상을 위한 구체적이고 실질적인 피드백을 제공합니다.\n"
-            "비판보다는 개선 방향을 제시하는 건설적인 리뷰를 작성합니다.\n"
-            "모든 리뷰는 한국어로 작성합니다. 코드, 파일명, 기술 용어는 영어 원문을 유지합니다."
-        )
+    # 1) 역할 + 리뷰 규칙 + 출력 형식 (review-prompt.md 통합 로드)
+    review_prompt = read_file_safe(REVIEW_PROMPT_PATH)
+    if not review_prompt:
+        print("[ERROR] review-prompt.md 없음 → 종료", file=sys.stderr)
+        sys.exit(1)
+    sections.append(review_prompt)
 
     # 2) PR 정보
     sections.append(
@@ -440,11 +433,7 @@ def build_prompt(diff: str, pr_info: dict, repo_full_name: str,
         f"- 설명: {pr_info.get('body', '없음') or '없음'}"
     )
 
-    # 3) 공통 규칙
-    base_rules = read_file_safe(BASE_RULES_PATH)
-    if base_rules:
-        sections.append(f"## 공통 리뷰 규칙\n\n{base_rules}")
-
+    # 3) 공통 코딩 컨벤션
     conventions = read_file_safe(CONVENTIONS_PATH)
     if conventions:
         sections.append(f"## 공통 코딩 컨벤션\n\n{conventions}")
@@ -463,59 +452,13 @@ def build_prompt(diff: str, pr_info: dict, repo_full_name: str,
     if repo_config:
         sections.append(f"## 이 리포지토리 추가 규칙\n\n{repo_config}")
 
-    # 6) 출력 규칙 + diff
+    # 6) PR Diff (출력 규칙은 review-prompt.md에 포함되어 있음)
     diff_limited = diff[:MAX_DIFF_LENGTH]
     if len(diff) > MAX_DIFF_LENGTH:
         diff_limited += f"\n\n...(이하 {len(diff) - MAX_DIFF_LENGTH}자 생략)"
 
     backtick = "`" * 3
-
-    output_section = (
-        "## 출력 규칙 (필수)\n"
-        "1. 순수 JSON만 출력 (코드블록 사용 금지)\n"
-        "2. review 필드: 아래 마크다운 형식으로 작성. 줄바꿈은 \\n 사용\n\n"
-        "## review 필드 형식\n"
-        "## 🤖 AI 코드 리뷰\\n\\n"
-        "### 📋 전체 요약\\n"
-        "[PR 전체에 대한 2~3문장 요약. 변경 목적과 전반적인 품질 평가 포함]\\n\\n"
-        "---\\n\\n"
-        "### ✅ 잘된 점\\n"
-        "- [잘된 점을 구체적으로. 없으면 이 섹션 생략]\\n\\n"
-        "---\\n\\n"
-        "### 🔴 반드시 수정 (Must Fix)\\n"
-        "> 머지 전에 반드시 해결해야 하는 문제입니다.\\n\\n"
-        "**[파일명:라인번호]** - [문제가 무엇인지 1~2줄 텍스트만. 코드 예시 절대 포함 금지]\\n\\n"
-        "---\\n\\n"
-        "### 🟡 수정 권장 (Should Fix)\\n"
-        "> 수정하지 않아도 동작하지만, 품질 향상을 위해 권장합니다.\\n\\n"
-        "**[파일명:라인번호]** - [문제가 무엇인지 1~2줄 텍스트만. 코드 예시 절대 포함 금지]\\n\\n"
-        "---\\n\\n"
-        "### 🔵 제안 사항 (Optional)\\n"
-        "> 선택적으로 고려할 수 있는 개선 아이디어입니다.\\n\\n"
-        "- [파일명] - [제안 내용. 코드 예시 없이 텍스트만]\\n\\n"
-        "---\\n\\n"
-        "### 📊 리뷰 요약\\n"
-        "| 항목 | 평가 |\\n"
-        "|------|------|\\n"
-        "| 코드 정확성 | 🟢 양호 / 🟡 주의 / 🔴 문제 (한줄 설명) |\\n"
-        "| 보안 | 🟢 양호 / 🟡 주의 / 🔴 문제 (한줄 설명) |\\n"
-        "| 성능 | 🟢 양호 / 🟡 주의 / 🔴 문제 (한줄 설명) |\\n"
-        "| 테스트 | 🟢 양호 / 🟡 주의 / 🔴 문제 (한줄 설명) |\\n"
-        "| 가독성 | 🟢 양호 / 🟡 주의 / 🔴 문제 (한줄 설명) |\\n\n"
-        "3. comments 필드: Must Fix / Should Fix 항목 중 특정 라인을 지정할 수 있는 것만 인라인 코멘트로 추가. 최대 10개\n"
-        "4. comments[].body: 문제 원인 + 개선 방향 상세히. 예시 코드 포함 권장. 줄바꿈은 \\n 사용\n"
-        "5. comments[].severity: Must Fix → CRITICAL 또는 HIGH, Should Fix → MEDIUM 또는 LOW\n"
-        "6. comments[].line: diff에서 + 로 시작하는 라인 번호만 사용\n"
-        "7. 모든 텍스트 한국어. 코드/파일명/기술용어는 영어 유지\n"
-        "8. review 필드의 Must Fix / Should Fix / Optional 섹션에는 코드 블록(```)을 절대 포함하지 않는다. 코드 예시는 comments[].body 인라인 코멘트에만 작성한다.\n\n"
-        "## JSON 형식\n"
-        '{"review":"## 🤖 AI 코드 리뷰\\n\\n### 📋 전체 요약\\n...(전체 마크다운 리뷰)...","comments":[{"path":"파일경로","line":42,"severity":"HIGH","body":"문제 원인\\n\\n💡 **제안**: 개선 방향\\n```java\\n예시코드\\n```"}]}\n\n'
-        "## PR Diff\n"
-        f"{backtick}diff\n"
-        f"{diff_limited}\n"
-        f"{backtick}"
-    )
-    sections.append(output_section)
+    sections.append(f"## PR Diff\n{backtick}diff\n{diff_limited}\n{backtick}")
 
     return "\n\n---\n\n".join(sections)
 
