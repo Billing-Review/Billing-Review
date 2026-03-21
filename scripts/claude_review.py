@@ -53,7 +53,7 @@ REPO_CONFIG_DIR      = os.path.join(SHARED_CONFIG_DIR, "repo")
 MAX_DIFF_LENGTH  = int(os.environ.get("MAX_DIFF_LENGTH", "100000"))
 MAX_SKILL_CHARS  = int(os.environ.get("MAX_SKILL_CHARS", "5000"))
 MAX_SKILLS_TOTAL = int(os.environ.get("MAX_SKILLS_TOTAL", "15000"))
-CLAUDE_MODEL     = os.environ.get("CLAUDE_MODEL", "claude-opus-4-5-20251101")
+CLAUDE_MODEL     = os.environ.get("CLAUDE_MODEL", "claude-opus-4-6")
 CLAUDE_TIMEOUT   = int(os.environ.get("CLAUDE_TIMEOUT", "300"))
 
 MAX_SUMMARY_FALLBACK_LENGTH = 5000
@@ -580,7 +580,6 @@ def call_claude(prompt: str) -> dict:
             [
                 "claude", "-p", prompt,
                 "--model", CLAUDE_MODEL,
-                "--max-tokens", "8096",
             ],
             capture_output=True, text=True, check=True,
             timeout=CLAUDE_TIMEOUT,
