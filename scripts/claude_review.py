@@ -1,415 +1,449 @@
 #!/usr/bin/env python3
-from __future__ import annotations
 """
-Claude Code PR Review Script
+Claude PR Review Script
 
-Organization의 공통 설정과 리포지토리별 추가 규칙을 합쳐서
-Claude에게 코드 리뷰를 요청하고 결과를 PR 코멘트로 게시한다.
+공통 Skills + repo별 추가 규칙을 합쳐서 Claude에게 코드 리뷰를 요청하고
+결과를 GitHub Code Review API로 인라인 코멘트로 게시한다.
 
 디렉토리 구조 (Organization .github 리포지토리):
     review-config/
-    ├── base-rules.md           ← 공통 리뷰 규칙
-    ├── conventions.md          ← 공통 코딩 컨벤션
-    ├── prompt-template.md      ← 시스템 프롬프트
+    ├── base-rules.md              ← 공통 리뷰 규칙
+    ├── conventions.md             ← 공통 코딩 컨벤션
+    ├── prompt-template.md         ← 시스템 프롬프트
+    ├── skills/                    ← 파일 타입별 Skills
+    │   ├── java-spring.md
+    │   ├── mybatis.md
+    │   ├── vue3-frontend.md
+    │   ├── github-actions.md
+    │   └── xml-config.md
     └── repo/
-        ├── payment-service.md  ← 리포지토리별 추가 규칙
-        ├── order-api.md
-        └── user-service.md
+        ├── payment-service.md     ← 리포별 추가 규칙
+        └── order-api.md
 
 사용법:
-    python3 claude_review.py <pr_number> <repo_full_name>
-    python3 claude_review.py 42 dev-team/payment-service
+    python3 claude_review.py <pr_number> [--dry-run]
 """
 
+import argparse
 import json
 import os
+import re
 import subprocess
 import sys
-from fnmatch import fnmatch
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Dict, Optional, Set
+
+# ============================================================
+# 상수
+# ============================================================
+
+SHARED_CONFIG_DIR = os.environ.get("SHARED_CONFIG_DIR", ".shared-config/review-config")
+
+BASE_RULES_PATH       = os.path.join(SHARED_CONFIG_DIR, "base-rules.md")
+CONVENTIONS_PATH      = os.path.join(SHARED_CONFIG_DIR, "conventions.md")
+PROMPT_TEMPLATE_PATH  = os.path.join(SHARED_CONFIG_DIR, "prompt-template.md")
+SKILLS_DIR            = os.path.join(SHARED_CONFIG_DIR, "skills")
+REPO_CONFIG_DIR       = os.path.join(SHARED_CONFIG_DIR, "repo")
+
+MAX_DIFF_LENGTH   = int(os.environ.get("MAX_DIFF_LENGTH", "100000"))
+MAX_SKILL_CHARS   = int(os.environ.get("MAX_SKILL_CHARS", "5000"))   # skill 1개당 최대
+MAX_SKILLS_TOTAL  = int(os.environ.get("MAX_SKILLS_TOTAL", "15000"))  # 전체 skills 합산 최대
+CLAUDE_MODEL      = os.environ.get("CLAUDE_MODEL", "claude-opus-4-5-20251101")
+CLAUDE_TIMEOUT    = int(os.environ.get("CLAUDE_TIMEOUT", "300"))
+
+MAX_SUMMARY_FALLBACK_LENGTH = 500
+
+DIFF_GIT_PATTERN = re.compile(r"diff --git a/(.+?) b/(.+?)$")
+
+SEVERITY_EMOJI = {
+    "CRITICAL": "🔴",
+    "HIGH":     "🟠",
+    "MEDIUM":   "🟡",
+    "LOW":      "🔵",
+    "SUGGESTION": "💡",
+}
+
+# 확장자 → 파일 타입
+EXTENSION_TO_FILE_TYPE: Dict[str, str] = {
+    ".java":       "java",
+    ".vue":        "vue",
+    ".js":         "javascript",
+    ".ts":         "javascript",
+    ".css":        "css",
+    ".scss":       "css",
+    ".yml":        "yaml",
+    ".yaml":       "yaml",
+    ".json":       "json",
+    ".xml":        "xml",
+    ".properties": "properties",
+    ".py":         "python",
+    ".sh":         "shell",
+    ".sql":        "sql",
+}
+
+ALL_REVIEWABLE_EXTENSIONS: Set[str] = set(EXTENSION_TO_FILE_TYPE.keys())
+
+# 파일 타입 → Skills 파일명 매핑
+# 감지된 파일 타입에 해당하는 skill만 주입된다
+FILE_TYPE_TO_SKILL: Dict[str, str] = {
+    "java":       "java-spring",
+    "vue":        "vue3-frontend",
+    "javascript": "vue3-frontend",
+    "yaml":       "github-actions",   # .github/ 경로일 때만 (필터링은 코드에서)
+    "xml":        "mybatis",          # mybatis 키워드 있을 때만 (필터링은 코드에서)
+}
 
 
 # ============================================================
-# 설정
+# 데이터 클래스
 # ============================================================
 
-SHARED_CONFIG_DIR = os.environ.get(
-    "SHARED_CONFIG_DIR", ".shared-config/review-config"
-)
+@dataclass
+class DiffAnalysis:
+    filtered_diff: str
+    files: Set[str]
+    file_types: Set[str]
 
-BASE_RULES_PATH = os.path.join(SHARED_CONFIG_DIR, "base-rules.md")
-CONVENTIONS_PATH = os.path.join(SHARED_CONFIG_DIR, "conventions.md")
-PROMPT_TEMPLATE_PATH = os.path.join(SHARED_CONFIG_DIR, "prompt-template.md")
-REPO_CONFIG_DIR = os.path.join(SHARED_CONFIG_DIR, "repo")
 
-MAX_DIFF_LINES = int(os.environ.get("MAX_DIFF_LINES", "2000"))
-CLAUDE_TIMEOUT = int(os.environ.get("CLAUDE_TIMEOUT", "300"))
+# ============================================================
+# 인증 확인
+# ============================================================
+
+def verify_claude_auth() -> None:
+    oauth_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+    if oauth_token:
+        print("[INFO] Claude 인증: CLAUDE_CODE_OAUTH_TOKEN 환경변수 사용")
+    else:
+        print("[WARN] CLAUDE_CODE_OAUTH_TOKEN 미설정 → 로컬 claude login 세션으로 시도", file=sys.stderr)
+
+
+def verify_gh_auth() -> None:
+    gh_host = os.environ.get("GH_HOST", "github.com")
+    gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GH_ENTERPRISE_TOKEN")
+    if gh_token:
+        print(f"[INFO] GH 인증: token 환경변수 사용 ({gh_host}), prefix={gh_token[:4]}...")
+    else:
+        print(f"[WARN] GH_TOKEN 미설정 → 로컬 gh auth 사용", file=sys.stderr)
 
 
 # ============================================================
 # GitHub CLI 래퍼
 # ============================================================
 
-def run_gh(args: list[str]) -> str:
-    """gh CLI를 실행하고 stdout을 반환한다."""
-    result = subprocess.run(
-        ["gh"] + args,
-        capture_output=True,
-        text=True,
-    )
+def run_gh(args: list) -> str:
+    result = subprocess.run(["gh"] + args, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"[ERROR] gh {' '.join(args)}", file=sys.stderr)
-        print(f"  stderr: {result.stderr.strip()}", file=sys.stderr)
+        print(f"[ERROR] gh {' '.join(args)}\n  stderr: {result.stderr.strip()}", file=sys.stderr)
         sys.exit(1)
     return result.stdout
 
 
-def get_pr_info(pr_number: str, repo: str) -> dict:
-    """PR 메타 정보를 가져온다."""
+def get_pr_info(pr_number: str) -> dict:
     output = run_gh([
         "pr", "view", pr_number,
-        "--repo", repo,
-        "--json", "title,body,author,baseRefName,headRefName,files",
+        "--json", "headRefOid,baseRefOid,headRepository,headRepositoryOwner",
     ])
-    return json.loads(output)
+    data = json.loads(output)
+    return {
+        "owner":      data["headRepositoryOwner"]["login"],
+        "repo":       data["headRepository"]["name"],
+        "commit_sha": data["headRefOid"],
+        "base_sha":   data["baseRefOid"],
+    }
 
 
-def get_pr_diff(pr_number: str, repo: str) -> str:
-    """PR diff를 가져온다."""
-    return run_gh(["pr", "diff", pr_number, "--repo", repo])
+def get_pr_diff(pr_number: str) -> str:
+    return run_gh(["pr", "diff", pr_number])
 
 
-def post_comment(pr_number: str, repo: str, body: str):
-    """PR에 코멘트를 게시한다."""
-    run_gh([
-        "pr", "comment", pr_number,
-        "--repo", repo,
-        "--body", body,
-    ])
-    print(f"[INFO] Review comment posted to PR #{pr_number}")
+def get_existing_claude_review_commit(pr_number: str, pr_info: dict) -> Optional[str]:
+    """이전 Claude 리뷰의 마지막 커밋 SHA를 반환한다."""
+    owner, repo = pr_info["owner"], pr_info["repo"]
+    try:
+        result = subprocess.run(
+            [
+                "gh", "api",
+                f"repos/{owner}/{repo}/pulls/{pr_number}/reviews",
+                "--paginate", "-q",
+                '.[] | select(.body | contains("Claude Code Review"))',
+            ],
+            capture_output=True, text=True,
+        )
+        last_commit = None
+        for line in result.stdout.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                review = json.loads(line)
+                if review.get("commit_id"):
+                    last_commit = review["commit_id"]
+            except json.JSONDecodeError:
+                pass
+        return last_commit
+    except Exception as e:
+        print(f"[WARN] 기존 리뷰 조회 실패: {e}", file=sys.stderr)
+        return None
+
+
+def get_incremental_diff(pr_number: str, since_commit: str, head_commit: str) -> Optional[str]:
+    result = subprocess.run(
+        ["git", "diff", f"{since_commit}..{head_commit}"],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout
+    return None
+
+
+def post_review(pr_number: str, pr_info: dict, review_data: dict, diff_mappings: dict) -> None:
+    owner, repo, commit_sha = pr_info["owner"], pr_info["repo"], pr_info["commit_sha"]
+
+    valid_comments = []
+    for c in review_data.get("comments", []):
+        path, line = c.get("path", ""), c.get("line", 0)
+        if path in diff_mappings and line in diff_mappings[path]:
+            emoji = SEVERITY_EMOJI.get(c.get("severity", ""), "💡")
+            valid_comments.append({
+                "path": path,
+                "line": line,
+                "body": f"{emoji} **{c.get('severity', '')}**\n\n{c.get('body', '')}",
+            })
+
+    summary = review_data.get("summary", "코드 리뷰가 완료되었습니다.")
+    payload = {
+        "commit_id": commit_sha,
+        "body": f"## 🤖 Claude Code Review\n\n{summary}\n\n---\n_Automated review by Claude_",
+        "event": "COMMENT",
+        "comments": valid_comments,
+    }
+
+    try:
+        result = subprocess.run(
+            [
+                "gh", "api",
+                f"repos/{owner}/{repo}/pulls/{pr_number}/reviews",
+                "-X", "POST",
+                "-H", "Accept: application/vnd.github+json",
+                "--input", "-",
+            ],
+            input=json.dumps(payload),
+            capture_output=True, text=True, check=True,
+        )
+        print(f"[INFO] Code review 게시 완료 (인라인 {len(valid_comments)}개)")
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] 리뷰 게시 실패: {e.stderr}", file=sys.stderr)
+        sys.exit(1)
 
 
 # ============================================================
 # Diff 처리
 # ============================================================
 
-# base-rules.md에서 정의한 기본 제외 패턴
-DEFAULT_IGNORE_PATTERNS = [
-    "*.generated.*",
-    "*.min.js",
-    "*.min.css",
-    "package-lock.json",
-    "yarn.lock",
-    "pnpm-lock.yaml",
-    ".idea/*",
-    ".vscode/*",
-]
-
-
-def parse_ignore_patterns(repo_config_content: str) -> list[str]:
-    """
-    리포지토리별 md에서 '리뷰 제외 대상' 섹션의 패턴을 파싱한다.
-    - `src/main/generated/**` 형태의 줄을 찾는다.
-    """
-    patterns = []
-    in_exclude_section = False
-
-    for line in repo_config_content.split("\n"):
-        stripped = line.strip()
-
-        if "리뷰 제외" in stripped or "리뷰에서 제외" in stripped:
-            in_exclude_section = True
-            continue
-
-        if in_exclude_section:
-            if stripped.startswith("#"):
-                in_exclude_section = False
-                continue
-
-            if stripped.startswith("- "):
-                pattern = stripped[2:].strip().strip("`")
-                if pattern:
-                    patterns.append(pattern)
-
-    return patterns
-
-
-def filter_diff(diff: str, extra_ignore_patterns: list[str]) -> str:
-    """ignore 패턴에 해당하는 파일의 diff를 제거한다."""
-    all_patterns = DEFAULT_IGNORE_PATTERNS + extra_ignore_patterns
-
-    if not all_patterns:
-        return diff
-
+def analyze_diff(diff: str) -> DiffAnalysis:
+    """diff 1회 순회 → 필터링된 diff + 파일 목록 + 파일 타입 동시 추출."""
+    files: Set[str] = set()
+    file_types: Set[str] = set()
     filtered_lines = []
-    skip_file = False
+    include_file = False
 
     for line in diff.split("\n"):
         if line.startswith("diff --git"):
-            # diff --git a/path/to/file b/path/to/file
-            file_path = line.split(" b/")[-1] if " b/" in line else ""
-            skip_file = any(fnmatch(file_path, p) for p in all_patterns)
-
-        if not skip_file:
+            match = DIFF_GIT_PATTERN.search(line)
+            if match:
+                file_path = match.group(2)
+                files.add(file_path)
+                ext = os.path.splitext(file_path)[1]
+                file_type = EXTENSION_TO_FILE_TYPE.get(ext)
+                if file_type:
+                    file_types.add(file_type)
+                include_file = ext in ALL_REVIEWABLE_EXTENSIONS
+            else:
+                include_file = False
+        if include_file:
             filtered_lines.append(line)
 
-    return "\n".join(filtered_lines)
+    return DiffAnalysis(
+        filtered_diff="\n".join(filtered_lines),
+        files=files,
+        file_types=file_types,
+    )
 
 
-def truncate_diff(diff: str, max_lines: int) -> str:
-    """diff가 너무 길면 잘라낸다."""
-    lines = diff.split("\n")
-    if len(lines) <= max_lines:
+def parse_exclude_patterns(repo_config_content: str) -> list:
+    """repo별 md에서 '리뷰 제외' 섹션의 패턴을 파싱한다."""
+    patterns = []
+    in_section = False
+    for line in repo_config_content.split("\n"):
+        stripped = line.strip()
+        if "리뷰 제외" in stripped or "리뷰에서 제외" in stripped:
+            in_section = True
+            continue
+        if in_section:
+            if stripped.startswith("#"):
+                break
+            if stripped.startswith("- "):
+                p = stripped[2:].strip().strip("`")
+                if p:
+                    patterns.append(p)
+    return patterns
+
+
+def filter_diff_by_patterns(diff: str, patterns: list) -> str:
+    """제외 패턴에 해당하는 파일 diff를 제거한다."""
+    from fnmatch import fnmatch
+    if not patterns:
         return diff
+    filtered, skip = [], False
+    for line in diff.split("\n"):
+        if line.startswith("diff --git"):
+            file_path = line.split(" b/")[-1] if " b/" in line else ""
+            skip = any(fnmatch(file_path, p) for p in patterns)
+        if not skip:
+            filtered.append(line)
+    return "\n".join(filtered)
 
-    truncated = "\n".join(lines[:max_lines])
-    truncated += f"\n\n... (이하 {len(lines) - max_lines}줄 생략, 총 {len(lines)}줄)"
-    return truncated
+
+def parse_diff_line_mapping(diff: str) -> dict:
+    """diff에서 파일별 변경된 라인 번호를 추출한다 (인라인 코멘트 유효성 검증용)."""
+    mappings: Dict[str, dict] = {}
+    current_file = None
+    current_line = 0
+    for line in diff.split("\n"):
+        if line.startswith("diff --git"):
+            match = DIFF_GIT_PATTERN.search(line)
+            if match:
+                current_file = match.group(2)
+                mappings[current_file] = {}
+        elif line.startswith("@@"):
+            match = re.search(r"\+(\d+)", line)
+            if match:
+                current_line = int(match.group(1))
+        elif current_file:
+            if not line.startswith("-"):
+                if line.startswith("+"):
+                    mappings[current_file][current_line] = True
+                current_line += 1
+    return mappings
+
+
+# ============================================================
+# 설정 파일 로드
+# ============================================================
+
+def read_file_safe(path: str) -> str:
+    p = Path(path)
+    if p.exists():
+        content = p.read_text(encoding="utf-8").strip()
+        print(f"[INFO] Loaded: {path}")
+        return content
+    print(f"[WARN] Not found: {path}", file=sys.stderr)
+    return ""
+
+
+def load_skills(file_types: Set[str], files: Set[str], diff: str) -> Dict[str, str]:
+    """
+    감지된 파일 타입에 해당하는 skill만 선택적으로 로드한다.
+    - yaml: .github/ 경로일 때만
+    - xml:  mybatis 키워드 있을 때만
+    각 skill은 MAX_SKILL_CHARS, 전체 합산은 MAX_SKILLS_TOTAL로 제한.
+    """
+    skills: Dict[str, str] = {}
+    total_chars = 0
+
+    for file_type in sorted(file_types):
+        skill_name = FILE_TYPE_TO_SKILL.get(file_type)
+        if not skill_name:
+            continue
+
+        # yaml → github-actions: .github/ 경로 파일이 있을 때만
+        if file_type == "yaml" and not any(".github/" in f for f in files):
+            continue
+
+        # xml → mybatis: mybatis 관련 키워드가 diff에 있을 때만
+        if file_type == "xml" and not any(
+            kw in diff for kw in ["<mapper", "<select", "<insert", "<update", "<delete", "mybatis"]
+        ):
+            skill_name = "xml-config"  # mybatis 아닌 일반 xml
+
+        skill_path = os.path.join(SKILLS_DIR, f"{skill_name}.md")
+        content = read_file_safe(skill_path)
+        if not content:
+            continue
+
+        # 길이 제한
+        if len(content) > MAX_SKILL_CHARS:
+            content = content[:MAX_SKILL_CHARS] + "\n...(이하 생략)"
+
+        if total_chars + len(content) > MAX_SKILLS_TOTAL:
+            print(f"[WARN] Skills 총 길이 초과로 '{skill_name}' 생략", file=sys.stderr)
+            break
+
+        skills[skill_name] = content
+        total_chars += len(content)
+
+    return skills
+
+
+def find_repo_config(repo_full_name: str) -> str:
+    repo_name = repo_full_name.split("/")[-1]
+    return read_file_safe(os.path.join(REPO_CONFIG_DIR, f"{repo_name}.md"))
 
 
 # ============================================================
 # 프롬프트 조립
 # ============================================================
 
-def read_file_safe(path: str) -> str:
-    """파일이 있으면 읽고, 없으면 빈 문자열을 반환한다."""
-    p = Path(path)
-    if p.exists():
-        content = p.read_text().strip()
-        print(f"[INFO] Loaded: {path}", file=sys.stderr)
-        return content
-
-    print(f"[WARN] Not found: {path}", file=sys.stderr)
-    return ""
-
-
-def find_repo_config(repo_full_name: str) -> str:
-    """
-    Organization의 review-config/repo/ 디렉토리에서
-    PR이 올라온 리포지토리 이름과 같은 md 파일을 찾는다.
-
-    repo_full_name: "dev-team/payment-service"
-    → review-config/repo/payment-service.md 를 찾는다.
-    """
-    repo_name = repo_full_name.split("/")[-1]  # "payment-service"
-    repo_config_path = os.path.join(REPO_CONFIG_DIR, f"{repo_name}.md")
-
-    content = read_file_safe(repo_config_path)
-    if content:
-        print(f"[INFO] Repo config matched: {repo_config_path}", file=sys.stderr)
-    else:
-        print(f"[INFO] No repo config for '{repo_name}', using org defaults only", file=sys.stderr)
-
-    return content
-
-
-def build_prompt(pr_info: dict, diff: str, repo_full_name: str) -> str:
-    """최종 프롬프트를 조립한다."""
+def build_prompt(diff: str, pr_info: dict, repo_full_name: str,
+                 file_types: Set[str], files: Set[str]) -> str:
+    sections = []
 
     # 1) 시스템 프롬프트
-    prompt_template = read_file_safe(PROMPT_TEMPLATE_PATH)
+    template = read_file_safe(PROMPT_TEMPLATE_PATH)
+    if template:
+        sections.append(template)
 
     # 2) 공통 규칙
     base_rules = read_file_safe(BASE_RULES_PATH)
-    conventions = read_file_safe(CONVENTIONS_PATH)
-
-    # 3) 리포지토리별 추가 규칙
-    repo_config = find_repo_config(repo_full_name)
-
-    # 4) PR 정보
-    author = pr_info.get("author", {}).get("login", "unknown")
-    title = pr_info.get("title", "")
-    body = pr_info.get("body", "") or "설명 없음"
-    head = pr_info.get("headRefName", "")
-    base = pr_info.get("baseRefName", "")
-
-    changed_files = pr_info.get("files", [])
-    file_list = "\n".join(
-        f"  - {f.get('path', '')} (+{f.get('additions', 0)} -{f.get('deletions', 0)})"
-        for f in changed_files
-    ) if changed_files else "  (파일 목록 없음)"
-
-    # 5) 조립
-    sections = []
-
-    if prompt_template:
-        sections.append(prompt_template)
-
-    sections.append(f"""
----
-
-## PR 정보
-- **제목**: {title}
-- **작성자**: {author}
-- **브랜치**: `{head}` → `{base}`
-- **변경 파일 수**: {len(changed_files)}개
-
-### PR 설명
-{body}
-
-### 변경된 파일 목록
-{file_list}
-""")
-
     if base_rules:
-        sections.append("---\n\n" + base_rules)
+        sections.append(f"## 공통 리뷰 규칙\n\n{base_rules}")
 
+    conventions = read_file_safe(CONVENTIONS_PATH)
     if conventions:
-        sections.append("---\n\n" + conventions)
+        sections.append(f"## 공통 코딩 컨벤션\n\n{conventions}")
 
-    if repo_config:
-        sections.append("---\n\n" + repo_config)
-
-    sections.append(f"""
----
-
-## 리뷰 대상 Diff
-
-아래 diff를 위의 모든 규칙과 컨벤션을 기준으로 리뷰해주세요.
-```diff
-{diff}
-```
-""")
-
-    return "\n\n".join(sections)
-
-
-# ============================================================
-# Claude 실행 (OAuth 기반 Self-hosted Runner용)
-# ============================================================
-
-def run_claude(prompt: str) -> str:
-    """Claude Code CLI를 실행하여 리뷰 결과를 받는다."""
-
-    # Runner의 실제 HOME 경로 확인 (OAuth 토큰 위치 탐색)
-    home = os.environ.get("HOME", "")
-    print(f"[INFO] HOME={home}", file=sys.stderr)
-    print(f"[INFO] USER={os.environ.get('USER', 'unknown')}", file=sys.stderr)
-
-    # OAuth 토큰 파일 존재 여부 확인
-    token_candidates = [
-        Path(home) / ".claude" / "credentials.json",
-        Path(home) / ".config" / "claude" / "credentials.json",
-        Path(home) / ".claude.json",
-    ]
-    found_token = False
-    for candidate in token_candidates:
-        if candidate.exists():
-            print(f"[INFO] Claude token found: {candidate}", file=sys.stderr)
-            found_token = True
-            break
-    if not found_token:
-        print("[WARN] No Claude OAuth token file found. CLI may fail.", file=sys.stderr)
-        for c in token_candidates:
-            print(f"  checked: {c}", file=sys.stderr)
-
-    print(f"[INFO] Running Claude Code (timeout: {CLAUDE_TIMEOUT}s)...", file=sys.stderr)
-    print(f"[INFO] Prompt length: {len(prompt)} chars", file=sys.stderr)
-
-    # claude CLI가 존재하는지 확인
-    which = subprocess.run(["which", "claude"], capture_output=True, text=True)
-    if which.returncode != 0:
-        print("[ERROR] 'claude' command not found in PATH", file=sys.stderr)
-        print(f"  PATH={os.environ.get('PATH', '')}", file=sys.stderr)
-        return "❌ Claude CLI가 PATH에 없습니다."
-    print(f"[INFO] claude binary: {which.stdout.strip()}", file=sys.stderr)
-
-    try:
-        result = subprocess.run(
-            ["claude", "--print", "--max-turns", "1"],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            timeout=CLAUDE_TIMEOUT,
-            env={**os.environ, "HOME": home},  # HOME 명시적으로 전달
+    # 3) Skills (파일 타입별 선택 주입)
+    skills = load_skills(file_types, files, diff)
+    if skills:
+        skill_block = "\n\n".join(
+            f"### {name}\n{content}" for name, content in skills.items()
         )
-    except subprocess.TimeoutExpired:
-        print("[ERROR] Claude timed out", file=sys.stderr)
-        return "⏰ Claude 리뷰가 시간 초과되었습니다. diff가 너무 크거나 네트워크 문제일 수 있습니다."
-    except FileNotFoundError:
-        print("[ERROR] 'claude' command not found", file=sys.stderr)
-        return "❌ Claude CLI가 설치되어 있지 않습니다."
+        sections.append(f"## 리뷰 참고 자료 (Skills)\n\n{skill_block}")
+        print(f"[INFO] 주입된 Skills: {list(skills.keys())}")
+    else:
+        print("[INFO] 주입된 Skills: 없음")
 
-    print(f"[DEBUG] returncode: {result.returncode}", file=sys.stderr)
-    print(f"[DEBUG] stdout length: {len(result.stdout)}", file=sys.stderr)
-    print(f"[DEBUG] stderr: {result.stderr[:2000]}", file=sys.stderr)  # 넉넉하게 출력
+    # 4) repo별 추가 규칙 (있을 때만)
+    repo_config = find_repo_config(repo_full_name)
+    if repo_config:
+        sections.append(f"## 이 리포지토리 추가 규칙\n\n{repo_config}")
 
-    if result.returncode != 0:
-        print(f"[ERROR] Claude exited with code {result.returncode}", file=sys.stderr)
-        return f"❌ Claude 실행 실패 (exit code: {result.returncode})\n```\n{result.stderr[:500]}\n```"
+    # 5) 출력 규칙 + diff
+    diff_limited = diff[:MAX_DIFF_LENGTH]
+    if len(diff) > MAX_DIFF_LENGTH:
+        diff_limited += f"\n\n...(이하 {len(diff) - MAX_DIFF_LENGTH}자 생략)"
 
-    output = result.stdout.strip()
-    if not output:
-        return "⚠️ Claude가 빈 응답을 반환했습니다."
+    sections.append(f"""## 출력 규칙 (필수)
+1. 순수 JSON만 출력 (코드블록 사용 금지)
+2. 코멘트는 최대 5개까지만
+3. body는 한 줄, 100자 이내
+4. line은 diff에서 + 로 시작하는 라인 번호만 사용
 
-    print(f"[INFO] Claude response: {len(output)} chars", file=sys.stderr)
-    return output
+## JSON 형식
+{{"summary":"요약 2문장","comments":[{{"path":"파일경로","line":숫자,"severity":"HIGH","body":"이모지 내용"}}]}}
 
+severity별 이모지: CRITICAL=🔴 HIGH=🟠 MEDIUM=🟡 LOW=🔵 SUGGESTION=💡
 
-# ============================================================
-# 메인
-# ============================================================
-
-def main():
-    if len(sys.argv) < 3:
-        print("Usage: claude_review.py <pr_number> <repo_full_name>", file=sys.stderr)
-        print("Example: claude_review.py 42 dev-team/payment-service", file=sys.stderr)
-        sys.exit(1)
-
-    pr_number = sys.argv[1]
-    repo_full_name = sys.argv[2]
-
-    print(f"[INFO] === Claude PR Review ===", file=sys.stderr)
-    print(f"[INFO] PR: #{pr_number} in {repo_full_name}", file=sys.stderr)
-
-    # 1) PR 정보 수집
-    print(f"[INFO] Fetching PR info...", file=sys.stderr)
-    pr_info = get_pr_info(pr_number, repo_full_name)
-
-    # 2) Diff 가져오기
-    print(f"[INFO] Fetching PR diff...", file=sys.stderr)
-    diff = get_pr_diff(pr_number, repo_full_name)
-
-    if not diff.strip():
-        print("[WARN] Empty diff, skipping review", file=sys.stderr)
-        post_comment(pr_number, repo_full_name, "## 🤖 Claude Code Review\n\n변경 사항이 없어 리뷰를 건너뜁니다.")
-        return
-
-    # 3) 리포지토리별 추가 ignore 패턴 파싱
-    repo_config_content = find_repo_config(repo_full_name)
-    extra_patterns = parse_ignore_patterns(repo_config_content) if repo_config_content else []
-    if extra_patterns:
-        print(f"[INFO] Extra ignore patterns: {extra_patterns}", file=sys.stderr)
-
-    # 4) Diff 필터링 및 잘라내기
-    diff = filter_diff(diff, extra_patterns)
-    diff = truncate_diff(diff, MAX_DIFF_LINES)
-
-    # 5) 프롬프트 조립
-    print(f"[INFO] Building prompt...", file=sys.stderr)
-    prompt = build_prompt(pr_info, diff, repo_full_name)
-
-    # 6) Claude 실행
-    review_result = run_claude(prompt)
-
-    # 7) PR 코멘트 게시
-    comment_body = f"## 🤖 Claude Code Review\n\n{review_result}"
-
-    # GitHub 코멘트 최대 길이 제한 (65536자)
-    if len(comment_body) > 65000:
-        comment_body = comment_body[:65000] + "\n\n... (응답이 길어 일부 잘림)"
-
-    post_comment(pr_number, repo_full_name, comment_body)
-
-    # 8) 결과 파일 저장 (알림 스크립트용)
-    result_path = os.path.join(
-        os.environ.get("GITHUB_WORKSPACE", "/tmp"),
-        "review-result.md",
-    )
-    Path(result_path).write_text(review_result)
-    print(f"[INFO] Review result saved to: {result_path}", file=sys.stderr)
-    print(f"[INFO] === Done ===", file=sys.stderr)
-
-
-if __name__ == "__main__":
-    main()
+## PR Diff
+```diff
