@@ -9,7 +9,7 @@ Claude PR Review Script
     review-config/
     ├── base-rules.md              ← 공통 리뷰 규칙
     ├── conventions.md             ← 공통 코딩 컨벤션
-    ├── prompt-template.md         ← Claude 역할/톤 정의 (선택)
+    ├── review-prompt-template.md         ← Claude 역할/톤 정의 (선택)
     ├── skills/                    ← 파일 타입별 Skills (선택)
     │   ├── java-spring.md
     │   ├── mybatis.md
@@ -46,7 +46,7 @@ SHARED_CONFIG_DIR = os.environ.get("SHARED_CONFIG_DIR", ".shared-config/review-c
 
 BASE_RULES_PATH      = os.path.join(SHARED_CONFIG_DIR, "base-rules.md")
 CONVENTIONS_PATH     = os.path.join(SHARED_CONFIG_DIR, "conventions.md")
-PROMPT_TEMPLATE_PATH = os.path.join(SHARED_CONFIG_DIR, "prompt-template.md")
+PROMPT_TEMPLATE_PATH = os.path.join(SHARED_CONFIG_DIR, "review-prompt-template.md")
 SKILLS_DIR           = os.path.join(SHARED_CONFIG_DIR, "skills")
 REPO_CONFIG_DIR      = os.path.join(SHARED_CONFIG_DIR, "repo")
 

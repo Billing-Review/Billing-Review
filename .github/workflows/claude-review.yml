@@ -39,7 +39,7 @@ jobs:
           token: ${{ secrets.ORG_GITHUB_TOKEN }}
 
       - name: 📥 Checkout shared config
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ github.repository_owner }}/Billing-Review
           path: .shared-config
