@@ -2,7 +2,7 @@
 """
 Claude PR Review Script
 
-공통 Skills + repo별 추가 규칙을 합쳐서 Claude에게 코드 리뷰를 요청하고
+GitHub Actions에서 실행되며, Claude에게 코드 리뷰를 요청하고
 결과를 GitHub Code Review API로 인라인 코멘트 + PR 전체 리뷰로 게시한다.
 
 디렉토리 구조 (Organization .github 리포지토리):
@@ -15,12 +15,12 @@ Claude PR Review Script
     │   ├── mybatis.md
     │   ├── spring-batch.md
     │   ├── kafka.md
-    │   ├── redis.md
+    │   └── redis.md
     └── repo/
-        └── payment-service.md     ← 리포별 기술스택 + 추가 규칙
+        └── payment-api.md     ← 리포별 기술스택 + 추가 규칙
 
-repo별 md 형식 예시:
-    # payment-service 리뷰 규칙
+repo별 md 형식:
+    # payment-api 리뷰 규칙
 
     ## 기술 스택
     - java-spring
@@ -35,12 +35,11 @@ repo별 md 형식 예시:
     ## 추가 규칙
     - 결제 금액 필드는 반드시 BigDecimal 사용
 
-사용법:
-    python3 claude_review.py <pr_number> <repo_full_name> [--dry-run]
-
-예시:
-    python3 claude_review.py 42 dev-team/payment-service
-    python3 claude_review.py 42 dev-team/payment-service --dry-run
+Skills 로드 우선순위:
+    1순위) repo md의 '기술 스택' 섹션에 선언된 skill 목록 사용
+    2순위) repo md가 없거나 '기술 스택' 선언이 없으면 diff 확장자 기반 기본 skill 자동 로드
+           .java 감지 → java-spring.md 자동 로드
+           .vue / .js / .ts 감지 → vue3-frontend.md 자동 로드
 """
 
 import argparse
@@ -103,6 +102,16 @@ EXTENSION_TO_FILE_TYPE: Dict[str, str] = {
 
 ALL_REVIEWABLE_EXTENSIONS: Set[str] = set(EXTENSION_TO_FILE_TYPE.keys())
 
+# repo 설정 없을 때 확장자 기반으로 자동 로드할 기본 skill 매핑
+# - yaml은 application.yml 등 Spring 설정 파일이 대부분이므로 제외
+#   (GitHub Actions가 필요한 repo는 repo md에 명시적으로 선언)
+# - jpa, kafka, redis 등 도메인 특화 skill도 repo md에서 명시적으로 선언
+DEFAULT_SKILL_BY_FILE_TYPE: Dict[str, str] = {
+    "java":       "java-spring",
+    "vue":        "vue3-frontend",
+    "javascript": "vue3-frontend",
+}
+
 
 # ============================================================
 # 데이터 클래스
@@ -124,7 +133,7 @@ def verify_claude_auth() -> None:
     if oauth_token:
         print("[INFO] Claude 인증: CLAUDE_CODE_OAUTH_TOKEN 환경변수 사용")
     else:
-        print("[WARN] CLAUDE_CODE_OAUTH_TOKEN 미설정 → 로컬 claude login 세션으로 시도", file=sys.stderr)
+        print("[WARN] CLAUDE_CODE_OAUTH_TOKEN 미설정", file=sys.stderr)
 
 
 def verify_gh_auth() -> None:
@@ -133,7 +142,7 @@ def verify_gh_auth() -> None:
     if gh_token:
         print(f"[INFO] GH 인증: token 사용 ({gh_host}), prefix={gh_token[:4]}...")
     else:
-        print("[WARN] GH_TOKEN 미설정 → 로컬 gh auth 사용", file=sys.stderr)
+        print("[WARN] GH_TOKEN 미설정", file=sys.stderr)
 
 
 # ============================================================
@@ -209,11 +218,7 @@ def get_incremental_diff(pr_number: str, since_commit: str, head_commit: str) ->
 
 
 def post_review(pr_number: str, pr_info: dict, review_data: dict, diff_mappings: dict) -> None:
-    """
-    GitHub Code Review API로 게시한다.
-    - body: PR 전체 마크다운 리뷰 (요약, 잘한점, Must Fix 등)
-    - comments: 코드 인라인 코멘트 (Must Fix / Should Fix 항목)
-    """
+    """GitHub Code Review API로 리뷰를 게시한다."""
     owner, repo, commit_sha = pr_info["owner"], pr_info["repo"], pr_info["commit_sha"]
 
     # 인라인 코멘트 유효성 검증
@@ -239,7 +244,6 @@ def post_review(pr_number: str, pr_info: dict, review_data: dict, diff_mappings:
 
     print(f"[INFO] 유효한 인라인 코멘트: {len(valid_comments)}개")
 
-    # review body \n → 실제 줄바꿈 변환
     review_body = review_data.get("review", "## 🤖 AI 코드 리뷰\n\n리뷰가 완료되었습니다.")
     review_body = review_body.replace("\\n", "\n").replace("\\t", "\t")
 
@@ -374,20 +378,12 @@ def read_file_safe(path: str) -> str:
 
 
 def find_repo_config(repo_full_name: str) -> str:
-    """repo별 설정 파일을 로드한다."""
     repo_name = repo_full_name.split("/")[-1]
     return read_file_safe(os.path.join(REPO_CONFIG_DIR, f"{repo_name}.md"))
 
 
 def parse_skill_names(repo_config_content: str) -> List[str]:
-    """repo별 md의 '기술 스택' 섹션에서 skill 이름 목록을 파싱한다.
-
-    형식:
-        ## 기술 스택
-        - java-spring
-        - jpa
-        - kafka
-    """
+    """repo md의 '기술 스택' 섹션에서 skill 이름 목록을 파싱한다."""
     skill_names = []
     in_section = False
     for line in repo_config_content.split("\n"):
@@ -405,13 +401,34 @@ def parse_skill_names(repo_config_content: str) -> List[str]:
     return skill_names
 
 
-def load_skills(skill_names: List[str]) -> Dict[str, str]:
-    """repo config에 선언된 skill 목록을 순서대로 로드한다.
+def resolve_skill_names(repo_config: str, file_types: Set[str]) -> List[str]:
+    """Skills 로드 우선순위를 결정한다.
 
-    - skill 파일이 없으면 경고 후 스킵
-    - MAX_SKILL_CHARS 초과 시 잘라냄
-    - 누적 MAX_SKILLS_TOTAL 초과 시 이후 skill 생략
+    1순위) repo md에 '기술 스택' 선언이 있으면 해당 목록 사용
+    2순위) 선언이 없으면 diff 확장자 기반으로 DEFAULT_SKILL_BY_FILE_TYPE에서 자동 선택
     """
+    if repo_config:
+        skill_names = parse_skill_names(repo_config)
+        if skill_names:
+            print("[INFO] Skills 로드: repo 기술 스택 선언 기반")
+            return skill_names
+
+    fallback_names = []
+    for file_type in sorted(file_types):
+        skill_name = DEFAULT_SKILL_BY_FILE_TYPE.get(file_type)
+        if skill_name and skill_name not in fallback_names:
+            fallback_names.append(skill_name)
+
+    if fallback_names:
+        print(f"[INFO] Skills 로드: repo 설정 없음 → 확장자 기반 자동 선택 {fallback_names}")
+    else:
+        print("[INFO] Skills 로드: 매핑되는 기본 skill 없음")
+
+    return fallback_names
+
+
+def load_skills(skill_names: List[str]) -> Dict[str, str]:
+    """skill 이름 목록을 순서대로 로드한다."""
     skills: Dict[str, str] = {}
     total_chars = 0
 
@@ -434,14 +451,34 @@ def load_skills(skill_names: List[str]) -> Dict[str, str]:
     return skills
 
 
+def _extract_repo_rules(repo_config_content: str) -> str:
+    """repo config에서 '기술 스택' 섹션을 제외한 나머지 내용을 반환한다."""
+    lines = repo_config_content.split("\n")
+    result = []
+    skip_section = False
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "## 기술 스택":
+            skip_section = True
+            continue
+        if skip_section and stripped.startswith("## "):
+            skip_section = False
+        if not skip_section:
+            result.append(line)
+
+    return "\n".join(result).strip()
+
+
 # ============================================================
 # 프롬프트 조립
 # ============================================================
 
-def build_prompt(diff: str, pr_info: dict, repo_full_name: str) -> str:
+def build_prompt(diff: str, pr_info: dict, repo_full_name: str,
+                 file_types: Set[str]) -> str:
     sections = []
 
-    # 1) 역할 + 리뷰 규칙 + 출력 형식 (review-prompt.md 통합 로드)
+    # 1) 역할 + 리뷰 규칙 + 출력 형식
     review_prompt = read_file_safe(REVIEW_PROMPT_PATH)
     if not review_prompt:
         print("[ERROR] review-prompt.md 없음 → 종료", file=sys.stderr)
@@ -460,33 +497,27 @@ def build_prompt(diff: str, pr_info: dict, repo_full_name: str) -> str:
     if conventions:
         sections.append(f"## 공통 코딩 컨벤션\n\n{conventions}")
 
-    # 4) repo별 설정 로드 (기술 스택 + 추가 규칙 + 제외 패턴 모두 포함)
+    # 4) Skills 로드 (1순위: repo 선언 / 2순위: 확장자 기반 자동 선택)
     repo_config = find_repo_config(repo_full_name)
+    skill_names = resolve_skill_names(repo_config, file_types)
+    skills = load_skills(skill_names)
 
-    # 4-1) 기술 스택 선언 기반 Skills 로드
+    if skills:
+        skill_block = "\n\n".join(
+            f"### {name}\n{content}" for name, content in skills.items()
+        )
+        sections.append(f"## 리뷰 참고 자료 (Skills)\n\n{skill_block}")
+        print(f"[INFO] 주입된 Skills: {list(skills.keys())}")
+    else:
+        print("[INFO] 주입된 Skills: 없음")
+
+    # 5) repo별 추가 규칙 (기술 스택 섹션 제외)
     if repo_config:
-        skill_names = parse_skill_names(repo_config)
-        if skill_names:
-            skills = load_skills(skill_names)
-            if skills:
-                skill_block = "\n\n".join(
-                    f"### {name}\n{content}" for name, content in skills.items()
-                )
-                sections.append(f"## 리뷰 참고 자료 (Skills)\n\n{skill_block}")
-                print(f"[INFO] 주입된 Skills: {list(skills.keys())}")
-            else:
-                print("[INFO] 주입된 Skills: 없음 (파일 미존재)")
-        else:
-            print("[INFO] 기술 스택 선언 없음 → Skills 생략")
-
-        # 4-2) repo별 추가 규칙 (기술 스택 섹션 제외하고 나머지 내용 주입)
         repo_rules = _extract_repo_rules(repo_config)
         if repo_rules:
             sections.append(f"## 이 리포지토리 추가 규칙\n\n{repo_rules}")
-    else:
-        print("[INFO] repo 설정 파일 없음 → Skills 및 추가 규칙 생략")
 
-    # 5) PR Diff
+    # 6) PR Diff
     diff_limited = diff[:MAX_DIFF_LENGTH]
     if len(diff) > MAX_DIFF_LENGTH:
         diff_limited += f"\n\n...(이하 {len(diff) - MAX_DIFF_LENGTH}자 생략)"
@@ -495,29 +526,6 @@ def build_prompt(diff: str, pr_info: dict, repo_full_name: str) -> str:
     sections.append(f"## PR Diff\n{backtick}diff\n{diff_limited}\n{backtick}")
 
     return "\n\n---\n\n".join(sections)
-
-
-def _extract_repo_rules(repo_config_content: str) -> str:
-    """repo config에서 '기술 스택' 섹션을 제외한 나머지 내용을 반환한다.
-    Skills는 별도로 주입되므로 프롬프트 중복을 방지한다.
-    """
-    lines = repo_config_content.split("\n")
-    result = []
-    skip_section = False
-
-    for line in lines:
-        stripped = line.strip()
-        if stripped == "## 기술 스택":
-            skip_section = True
-            continue
-        # 다음 ## 섹션이 시작되면 스킵 종료
-        if skip_section and stripped.startswith("## "):
-            skip_section = False
-        if not skip_section:
-            result.append(line)
-
-    content = "\n".join(result).strip()
-    return content
 
 
 # ============================================================
@@ -544,8 +552,6 @@ def extract_json(output: str) -> dict:
             pass
 
     # 3) JSONDecoder.raw_decode로 정확하게 파싱
-    #    - 직접 구현한 depth 카운팅 대신 Python 표준 라이브러리 사용
-    #    - 이중 이스케이프(\\n, \\t), 한글 유니코드 등 모두 정확히 처리
     start = output.find("{")
     if start != -1:
         decoder = json.JSONDecoder()
@@ -565,7 +571,6 @@ def call_claude(prompt: str) -> dict:
     print(f"[INFO] Claude 호출 (model={CLAUDE_MODEL}, timeout={CLAUDE_TIMEOUT}s)")
     print(f"[INFO] 프롬프트 길이: {len(prompt)} chars")
 
-    # GitHub Actions 환경에서 UTF-8 인코딩 강제
     env = {
         **os.environ,
         "HOME": home,
@@ -583,8 +588,8 @@ def call_claude(prompt: str) -> dict:
             capture_output=True,
             check=True,
             timeout=CLAUDE_TIMEOUT,
-            encoding="utf-8",   # text=True 대신 인코딩 명시
-            errors="replace",   # 깨진 문자 대체 (크래시 방지)
+            encoding="utf-8",
+            errors="replace",
             env=env,
         )
         output = result.stdout.strip()
@@ -595,7 +600,7 @@ def call_claude(prompt: str) -> dict:
     except subprocess.CalledProcessError as e:
         err = (e.stdout or "") + (e.stderr or "")
         if "Not logged in" in err or "/login" in err:
-            print("[ERROR] Claude 인증 실패. CLAUDE_CODE_OAUTH_TOKEN 또는 claude login 필요", file=sys.stderr)
+            print("[ERROR] Claude 인증 실패. CLAUDE_CODE_OAUTH_TOKEN 확인 필요", file=sys.stderr)
         else:
             print(f"[ERROR] Claude CLI 실패 (exit {e.returncode})", file=sys.stderr)
             print(f"  stdout: {e.stdout[:500]}", file=sys.stderr)
@@ -617,7 +622,7 @@ def main():
     parser = argparse.ArgumentParser(description="Claude PR Review")
     parser.add_argument("pr_number", help="PR 번호")
     parser.add_argument("repo_full_name", help="org/repo 형식 (예: dev-team/payment-service)")
-    parser.add_argument("--dry-run", action="store_true", help="PR 코멘트 없이 결과만 출력")
+    parser.add_argument("--dry-run", action="store_true", help="PR 코멘트 없이 결과만 터미널 출력")
     args = parser.parse_args()
 
     gh_host = os.environ.get("GH_HOST", "github.com")
@@ -684,6 +689,7 @@ def main():
         analysis.filtered_diff,
         pr_info,
         args.repo_full_name,
+        analysis.file_types,
     )
     print(f"[INFO] 최종 프롬프트 길이: {len(prompt)} chars")
 

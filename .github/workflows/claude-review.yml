@@ -72,28 +72,3 @@ jobs:
           python3 .shared-config/scripts/claude_review.py \
             "${{ inputs.pr_number }}" \
             "${{ inputs.repo_name }}"
-          
-
-#      - name: 🤖 Run Claude Code Review
-#        env:
-#          SHARED_CONFIG_DIR: .shared-config/review-config
-#          GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
-#          GH_ENTERPRISE_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
-#          GH_HOST: github.nhnent.com
-#          MAX_DIFF_LINES: '2000'
-#          CLAUDE_TIMEOUT: '300'
-#        run: |
-#          python3 .shared-config/scripts/claude_review.py \
-#            "${{ inputs.pr_number }}" \
-#            "${{ inputs.repo_name }}"
-      
-
-#      - name: 📢 Send notification
-#        if: always()
-#        env:
-#          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-#          PR_NUMBER: ${{ inputs.pr_number }}
-#          REPO_NAME: ${{ inputs.repo_name }}
-#          REVIEW_STATUS: ${{ steps.config.outcome }}
-#        run: |
-#          python3 .shared-config/scripts/notify.py
