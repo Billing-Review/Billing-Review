@@ -525,49 +525,85 @@ def build_prompt(diff: str, pr_info: dict, repo_full_name: str,
 # ============================================================
 # Claude 호출
 # ============================================================
-
 def extract_json(output: str) -> dict:
     """Claude 응답에서 JSON을 추출한다."""
+
+    # 1) ```json ... ``` 블록 우선 시도
     m = re.search(r"```json\s*([\s\S]*?)\s*```", output)
     if m:
-        output = m.group(1).strip()
-    else:
-        m = re.search(r"```\s*([\s\S]*?)\s*```", output)
-        if m:
-            output = m.group(1).strip()
-        else:
-            start = output.find("{")
-            if start != -1:
-                depth, in_str, escape = 0, False, False
-                for i, ch in enumerate(output[start:], start):
-                    if escape:
-                        escape = False
-                        continue
-                    if ch == "\\":
-                        escape = True
-                        continue
-                    if ch == '"':
-                        in_str = not in_str
-                        continue
-                    if in_str:
-                        continue
-                    if ch == "{":
-                        depth += 1
-                    elif ch == "}":
-                        depth -= 1
-                        if depth == 0:
-                            output = output[start:i + 1]
-                            break
-
-    if output.startswith("{"):
+        candidate = m.group(1).strip()
         try:
-            return json.loads(output)
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass  # fallback으로 넘어감
+
+    # 2) ``` ... ``` 블록 시도
+    m = re.search(r"```\s*([\s\S]*?)\s*```", output)
+    if m:
+        candidate = m.group(1).strip()
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+    # 3) { 위치부터 JSONDecoder로 정확하게 파싱 (핵심 수정)
+    start = output.find("{")
+    if start != -1:
+        decoder = json.JSONDecoder()
+        try:
+            # raw_decode는 문자열 중간부터 파싱 가능하고,
+            # 내부 이스케이프/중첩 구조를 Python이 직접 처리함
+            obj, _ = decoder.raw_decode(output, start)
+            return obj
         except json.JSONDecodeError as e:
-            print(f"[WARN] JSON 파싱 실패: {e}", file=sys.stderr)
-            print(f"  첫 500자: {output[:500]}", file=sys.stderr)
+            print(f"[WARN] JSONDecoder 파싱 실패: {e}", file=sys.stderr)
+            print(f"  실패 위치: {e.pos}, 앞뒤 컨텍스트: {output[max(0,e.pos-50):e.pos+50]!r}", file=sys.stderr)
 
     print("[WARN] JSON 추출 실패 → fallback", file=sys.stderr)
     return {"review": output[:MAX_SUMMARY_FALLBACK_LENGTH], "comments": []}
+
+# def extract_json(output: str) -> dict:
+#     """Claude 응답에서 JSON을 추출한다."""
+#     m = re.search(r"```json\s*([\s\S]*?)\s*```", output)
+#     if m:
+#         output = m.group(1).strip()
+#     else:
+#         m = re.search(r"```\s*([\s\S]*?)\s*```", output)
+#         if m:
+#             output = m.group(1).strip()
+#         else:
+#             start = output.find("{")
+#             if start != -1:
+#                 depth, in_str, escape = 0, False, False
+#                 for i, ch in enumerate(output[start:], start):
+#                     if escape:
+#                         escape = False
+#                         continue
+#                     if ch == "\\":
+#                         escape = True
+#                         continue
+#                     if ch == '"':
+#                         in_str = not in_str
+#                         continue
+#                     if in_str:
+#                         continue
+#                     if ch == "{":
+#                         depth += 1
+#                     elif ch == "}":
+#                         depth -= 1
+#                         if depth == 0:
+#                             output = output[start:i + 1]
+#                             break
+#
+#     if output.startswith("{"):
+#         try:
+#             return json.loads(output)
+#         except json.JSONDecodeError as e:
+#             print(f"[WARN] JSON 파싱 실패: {e}", file=sys.stderr)
+#             print(f"  첫 500자: {output[:500]}", file=sys.stderr)
+#
+#     print("[WARN] JSON 추출 실패 → fallback", file=sys.stderr)
+#     return {"review": output[:MAX_SUMMARY_FALLBACK_LENGTH], "comments": []}
 
 
 def call_claude(prompt: str) -> dict:
