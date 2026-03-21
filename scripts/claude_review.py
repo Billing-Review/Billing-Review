@@ -3,7 +3,7 @@
 Claude PR Review Script
 
 공통 Skills + repo별 추가 규칙을 합쳐서 Claude에게 코드 리뷰를 요청하고
-결과를 GitHub Code Review API로 인라인 코멘트로 게시한다.
+결과를 GitHub Code Review API로 인라인 코멘트 + PR 전체 리뷰로 게시한다.
 
 디렉토리 구조 (Organization .github 리포지토리):
     review-config/
@@ -139,7 +139,7 @@ def run_gh(args: list) -> str:
 def get_pr_info(pr_number: str) -> dict:
     output = run_gh([
         "pr", "view", pr_number,
-        "--json", "headRefOid,baseRefOid,headRepository,headRepositoryOwner",
+        "--json", "headRefOid,baseRefOid,headRepository,headRepositoryOwner,title,body",
     ])
     data = json.loads(output)
     return {
@@ -147,6 +147,8 @@ def get_pr_info(pr_number: str) -> dict:
         "repo":       data["headRepository"]["name"],
         "commit_sha": data["headRefOid"],
         "base_sha":   data["baseRefOid"],
+        "title":      data.get("title", ""),
+        "body":       data.get("body", "") or "",
     }
 
 
@@ -162,7 +164,7 @@ def get_existing_claude_review_commit(pr_number: str, pr_info: dict) -> Optional
                 "gh", "api",
                 f"repos/{owner}/{repo}/pulls/{pr_number}/reviews",
                 "--paginate", "-q",
-                '.[] | select(.body | contains("Claude Code Review"))',
+                '.[] | select(.body | contains("🤖 AI 코드 리뷰"))',
             ],
             capture_output=True, text=True,
         )
@@ -194,8 +196,14 @@ def get_incremental_diff(pr_number: str, since_commit: str, head_commit: str) ->
 
 
 def post_review(pr_number: str, pr_info: dict, review_data: dict, diff_mappings: dict) -> None:
+    """
+    GitHub Code Review API로 게시한다.
+    - body: PR 전체 마크다운 리뷰 (요약, 잘한점, Must Fix 등)
+    - comments: 코드 인라인 코멘트
+    """
     owner, repo, commit_sha = pr_info["owner"], pr_info["repo"], pr_info["commit_sha"]
 
+    # 인라인 코멘트 유효성 검증
     valid_comments = []
     skipped = []
     for c in review_data.get("comments", []):
@@ -205,7 +213,10 @@ def post_review(pr_number: str, pr_info: dict, review_data: dict, diff_mappings:
             valid_comments.append({
                 "path": path,
                 "line": line,
-                "body": f"{emoji} **{c.get('severity', '')}**\n\n{c.get('body', '')}",
+                "body": (
+                    f"{emoji} **{c.get('severity', '')}**\n\n"
+                    f"{c.get('body', '')}"
+                ),
             })
         else:
             skipped.append(f"  - {path}:{line} (not in diff)")
@@ -217,10 +228,12 @@ def post_review(pr_number: str, pr_info: dict, review_data: dict, diff_mappings:
 
     print(f"[INFO] 유효한 인라인 코멘트: {len(valid_comments)}개")
 
-    summary = review_data.get("summary", "코드 리뷰가 완료되었습니다.")
+    # PR 전체 리뷰 본문 (마크다운)
+    review_body = review_data.get("review", "## 🤖 AI 코드 리뷰\n\n리뷰가 완료되었습니다.")
+
     payload = {
         "commit_id": commit_sha,
-        "body": f"## 🤖 Claude Code Review\n\n{summary}\n\n---\n_Automated review by Claude_",
+        "body": review_body,
         "event": "COMMENT",
         "comments": valid_comments,
     }
@@ -362,7 +375,6 @@ def load_skills(file_types: Set[str], files: Set[str], diff: str) -> Dict[str, s
             )
             skill_name = "mybatis" if has_mybatis else "xml-config"
 
-        # 중복 skill 스킵 (vue + javascript 둘 다 감지된 경우)
         if skill_name in skills:
             continue
 
@@ -397,10 +409,25 @@ def build_prompt(diff: str, pr_info: dict, repo_full_name: str,
                  file_types: Set[str], files: Set[str]) -> str:
     sections = []
 
+    # 1) 시스템 프롬프트 (prompt-template.md 있으면 사용, 없으면 기본값)
     template = read_file_safe(PROMPT_TEMPLATE_PATH)
     if template:
         sections.append(template)
+    else:
+        sections.append(
+            "당신은 숙련된 시니어 소프트웨어 엔지니어입니다.\n"
+            "Pull Request의 변경사항을 리뷰하고, 코드 품질 향상을 위한 구체적이고 실질적인 피드백을 제공합니다.\n"
+            "비판보다는 개선 방향을 제시하는 건설적인 리뷰를 작성합니다."
+        )
 
+    # 2) PR 정보
+    sections.append(
+        f"## PR 정보\n"
+        f"- 제목: {pr_info.get('title', '')}\n"
+        f"- 설명: {pr_info.get('body', '없음') or '없음'}"
+    )
+
+    # 3) 공통 규칙
     base_rules = read_file_safe(BASE_RULES_PATH)
     if base_rules:
         sections.append(f"## 공통 리뷰 규칙\n\n{base_rules}")
@@ -409,6 +436,7 @@ def build_prompt(diff: str, pr_info: dict, repo_full_name: str,
     if conventions:
         sections.append(f"## 공통 코딩 컨벤션\n\n{conventions}")
 
+    # 4) Skills (파일 타입별 선택 주입)
     skills = load_skills(file_types, files, diff)
     if skills:
         skill_block = "\n\n".join(f"### {name}\n{content}" for name, content in skills.items())
@@ -417,26 +445,43 @@ def build_prompt(diff: str, pr_info: dict, repo_full_name: str,
     else:
         print("[INFO] 주입된 Skills: 없음")
 
+    # 5) repo별 추가 규칙
     repo_config = find_repo_config(repo_full_name)
     if repo_config:
         sections.append(f"## 이 리포지토리 추가 규칙\n\n{repo_config}")
 
+    # 6) 출력 규칙 + diff
     diff_limited = diff[:MAX_DIFF_LENGTH]
     if len(diff) > MAX_DIFF_LENGTH:
         diff_limited += f"\n\n...(이하 {len(diff) - MAX_DIFF_LENGTH}자 생략)"
 
     backtick = "`" * 3
-    json_example = '{"summary":"요약 2문장","comments":[{"path":"파일경로","line":숫자,"severity":"HIGH","body":"이모지 내용"}]}'
+    json_example = (
+        '{'
+        '"review":"## 🤖 AI 코드 리뷰\\n\\n### 📋 전체 요약\\n[2~3문장 요약]\\n\\n'
+        '### ✅ 잘된 점\\n- [잘된 점]\\n\\n'
+        '### 🔴 반드시 수정 (Must Fix)\\n**[파일명:라인번호]** - [문제 설명]\\n💡 **제안**: [개선 방향]\\n\\n'
+        '### 🟡 수정 권장 (Should Fix)\\n**[파일명:라인번호]** - [문제 설명]\\n\\n'
+        '### 🔵 제안 사항 (Optional)\\n- [제안 내용]\\n\\n'
+        '### 📊 리뷰 요약\\n| 항목 | 평가 |\\n|------|------|\\n'
+        '| 코드 정확성 | 🟢 양호 |\\n| 보안 | 🟢 양호 |\\n'
+        '| 성능 | 🟡 주의 |\\n| 테스트 | 🟡 주의 |\\n| 가독성 | 🟢 양호 |",'
+        '"comments":['
+        '{"path":"파일경로","line":숫자,"severity":"HIGH","body":"상세 설명. 문제 원인과 개선 방향 포함."}'
+        ']}'
+    )
 
     output_section = (
         "## 출력 규칙 (필수)\n"
         "1. 순수 JSON만 출력 (코드블록 사용 금지)\n"
-        "2. 코멘트는 최대 5개까지만\n"
-        "3. body는 한 줄, 100자 이내\n"
-        "4. line은 diff에서 + 로 시작하는 라인 번호만 사용\n\n"
-        "## JSON 형식\n"
+        "2. review 필드: PR 전체 마크다운 리뷰. 요약/잘한점/Must Fix/Should Fix/Optional/리뷰요약표 포함\n"
+        "3. comments 필드: 코드 인라인 코멘트. 최대 10개\n"
+        "4. comments[].body: 문제 원인 + 개선 방향을 상세히 작성 (여러 줄 가능, \\n 사용)\n"
+        "5. comments[].line: diff에서 + 로 시작하는 라인 번호만 사용\n"
+        "6. 모든 텍스트는 한국어로 작성. 코드/파일명/기술용어는 영어 유지\n\n"
+        "## JSON 형식 예시\n"
         f"{json_example}\n\n"
-        "severity별 이모지: CRITICAL=🔴 HIGH=🟠 MEDIUM=🟡 LOW=🔵 SUGGESTION=💡\n\n"
+        "severity 기준: CRITICAL=머지 불가 수준, HIGH=반드시 수정, MEDIUM=수정 권장, LOW=minor, SUGGESTION=선택적 개선\n\n"
         "## PR Diff\n"
         f"{backtick}diff\n"
         f"{diff_limited}\n"
@@ -491,7 +536,7 @@ def extract_json(output: str) -> dict:
             print(f"  첫 500자: {output[:500]}", file=sys.stderr)
 
     print("[WARN] JSON 추출 실패 → fallback", file=sys.stderr)
-    return {"summary": output[:MAX_SUMMARY_FALLBACK_LENGTH], "comments": []}
+    return {"review": output[:MAX_SUMMARY_FALLBACK_LENGTH], "comments": []}
 
 
 def call_claude(prompt: str) -> dict:
@@ -551,6 +596,7 @@ def main():
     # 1. PR 정보
     pr_info = get_pr_info(args.pr_number)
     print(f"[INFO] commit: {pr_info['commit_sha'][:8]}")
+    print(f"[INFO] title: {pr_info['title']}")
 
     # 2. 이전 리뷰 커밋 조회
     last_commit = get_existing_claude_review_commit(args.pr_number, pr_info)
@@ -611,10 +657,11 @@ def main():
     review_data = call_claude(prompt)
 
     print(f"[INFO] === 리뷰 결과 ===")
-    print(f"Summary: {review_data.get('summary', 'N/A')}")
+    review_preview = review_data.get("review", "")[:200].replace("\n", " ")
+    print(f"Review 미리보기: {review_preview}...")
     print(f"Comments: {len(review_data.get('comments', []))}개")
     for i, c in enumerate(review_data.get("comments", []), 1):
-        print(f"  [{i}] {c.get('severity')} {c.get('path')}:{c.get('line')} - {c.get('body', '')[:80]}")
+        print(f"  [{i}] {c.get('severity')} {c.get('path')}:{c.get('line')} - {c.get('body', '')[:60]}")
 
     # 7. 게시
     if args.dry_run:
