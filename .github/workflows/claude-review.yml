@@ -66,6 +66,7 @@ jobs:
         env:
           SHARED_CONFIG_DIR: .shared-config/review-config
           GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           HOME: /Users/nhn
         run: |
           python3 .shared-config/scripts/claude_review.py \
