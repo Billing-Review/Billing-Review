@@ -1,46 +1,4 @@
 #!/usr/bin/env python3
-"""
-Claude PR Review Script
-
-GitHub Actions에서 실행되며, Claude에게 코드 리뷰를 요청하고
-결과를 GitHub Code Review API로 인라인 코멘트 + PR 전체 리뷰로 게시한다.
-
-디렉토리 구조 (Organization .github 리포지토리):
-    review-config/
-    ├── review-prompt.md           ← 역할 + 리뷰 규칙 + 출력 형식 통합
-    ├── conventions.md             ← 공통 코딩 컨벤션
-    ├── skills/                    ← 기술스택별 리뷰 가이드
-    │   ├── java-spring.md
-    │   ├── jpa.md
-    │   ├── mybatis.md
-    │   ├── spring-batch.md
-    │   ├── kafka.md
-    │   └── redis.md
-    └── repo/
-        └── payment-api.md     ← 리포별 기술스택 + 추가 규칙
-
-repo별 md 형식:
-    # payment-api 리뷰 규칙
-
-    ## 기술 스택
-    - java-spring
-    - jpa
-    - kafka
-    - redis
-
-    ## 리뷰 제외
-    - `src/main/generated/**`
-    - `**/Q*.java`
-
-    ## 추가 규칙
-    - 결제 금액 필드는 반드시 BigDecimal 사용
-
-Skills 로드 우선순위:
-    1순위) repo md의 '기술 스택' 섹션에 선언된 skill 목록 사용
-    2순위) repo md가 없거나 '기술 스택' 선언이 없으면 diff 확장자 기반 기본 skill 자동 로드
-           .java 감지 → java-spring.md 자동 로드
-           .vue / .js / .ts 감지 → vue3-frontend.md 자동 로드
-"""
 
 import argparse
 import json
@@ -620,7 +578,7 @@ def call_claude(prompt: str) -> dict:
 def main():
     parser = argparse.ArgumentParser(description="Claude PR Review")
     parser.add_argument("pr_number", help="PR 번호")
-    parser.add_argument("repo_full_name", help="org/repo 형식 (예: dev-team/payment-service)")
+    parser.add_argument("repo_full_name", help="org/repo 형식 (예: dev-team/payment-api)")
     parser.add_argument("--dry-run", action="store_true", help="PR 코멘트 없이 결과만 터미널 출력")
     args = parser.parse_args()
 
