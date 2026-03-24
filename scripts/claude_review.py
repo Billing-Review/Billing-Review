@@ -579,7 +579,7 @@ def main():
     parser = argparse.ArgumentParser(description="Claude PR Review")
     parser.add_argument("pr_number", help="PR 번호")
     parser.add_argument("repo_full_name", help="org/repo 형식 (예: dev-team/payment-api)")
-    parser.add_argument("--dry-run", action="store_true", help="PR 코멘트 없이 결과만 터미널 출력")
+    manual_trigger = sys.argv[3].lower() == "true" if len(sys.argv) > 3 else False
     args = parser.parse_args()
 
     gh_host = os.environ.get("GH_HOST", "github.com")
@@ -590,7 +590,6 @@ def main():
 
     print(f"[INFO] === Claude PR Review ===")
     print(f"[INFO] PR: #{args.pr_number} in {args.repo_full_name}")
-    print(f"[INFO] Dry run: {args.dry_run}")
 
     # 1. PR 정보
     pr_info = get_pr_info(args.pr_number)
@@ -606,10 +605,15 @@ def main():
 
     # 3. diff 수집 (incremental 우선)
     diff = None
-    if last_commit and last_commit != pr_info["commit_sha"]:
+    if args.manual_trigger:
+        # manual trigger: 항상 전체 diff
+        print("[INFO] Manual trigger → 전체 diff 강제 사용")
+        diff = get_pr_diff(args.pr_number)
+    elif last_commit and last_commit != pr_info["commit_sha"]:
         diff = get_incremental_diff(args.pr_number, last_commit, pr_info["commit_sha"])
         if diff:
             print("[INFO] Incremental diff 사용")
+
     if not diff:
         diff = get_pr_diff(args.pr_number)
         print("[INFO] 전체 diff 사용")
@@ -661,12 +665,7 @@ def main():
         print(f"  [{i}] {c.get('severity')} {c.get('path')}:{c.get('line')} - {c.get('body', '')[:60]}")
 
     # 7. 게시
-    if args.dry_run:
-        print("[INFO] Dry run → PR 코멘트 생략")
-        print(json.dumps(review_data, ensure_ascii=False, indent=2))
-    else:
-        post_review(args.pr_number, pr_info, review_data, diff_mappings)
-
+    post_review(args.pr_number, pr_info, review_data, diff_mappings)
 
 if __name__ == "__main__":
     main()

@@ -69,4 +69,5 @@ jobs:
         run: |
           python3 .shared-config/scripts/claude_review.py \
             "${{ inputs.pr_number }}" \
-            "${{ inputs.repo_name }}"
+            "${{ inputs.repo_name }}" \
+            "${{ inputs.manual_trigger }}"
