@@ -16,8 +16,6 @@ on:
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
-      SLACK_WEBHOOK_URL:
-        required: false
       ORG_GITHUB_TOKEN:
         required: true
 
