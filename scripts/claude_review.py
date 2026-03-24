@@ -579,9 +579,10 @@ def main():
     parser = argparse.ArgumentParser(description="Claude PR Review")
     parser.add_argument("pr_number", help="PR 번호")
     parser.add_argument("repo_full_name", help="org/repo 형식 (예: dev-team/payment-api)")
-    manual_trigger = sys.argv[3].lower() == "true" if len(sys.argv) > 3 else False
+    parser.add_argument("manual_trigger", nargs="?", default="false", help="수동 트리거 여부")
     args = parser.parse_args()
 
+    args.manual_trigger = args.manual_trigger.lower() == "true"  # str → bool 변환
     gh_host = os.environ.get("GH_HOST", "github.com")
     os.environ["GH_HOST"] = gh_host
 
