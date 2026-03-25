@@ -16,8 +16,9 @@ from typing import Dict, List, Optional, Set
 
 SHARED_CONFIG_DIR = os.environ.get("SHARED_CONFIG_DIR", ".shared-config/review-config")
 
-REVIEW_PROMPT_PATH = os.path.join(SHARED_CONFIG_DIR, "review-prompt.md")
-CONVENTIONS_PATH   = os.path.join(SHARED_CONFIG_DIR, "conventions.md")
+REVIEW_PROMPT_PATH             = os.path.join(SHARED_CONFIG_DIR, "review-prompt.md")
+REVIEW_PROMPT_INCREMENTAL_PATH = os.path.join(SHARED_CONFIG_DIR, "review-prompt-incremental.md")
+CONVENTIONS_PATH               = os.path.join(SHARED_CONFIG_DIR, "conventions.md")
 SKILLS_DIR         = os.path.join(SHARED_CONFIG_DIR, "skills")
 REPO_CONFIG_DIR    = os.path.join(SHARED_CONFIG_DIR, "repo")
 
@@ -433,11 +434,12 @@ def _extract_repo_rules(repo_config_content: str) -> str:
 # ============================================================
 
 def build_prompt(diff: str, pr_info: dict, repo_full_name: str,
-                 file_types: Set[str]) -> str:
+                 file_types: Set[str], is_incremental: bool = False) -> str:
     sections = []
 
-    # 1) 역할 + 리뷰 규칙 + 출력 형식
-    review_prompt = read_file_safe(REVIEW_PROMPT_PATH)
+    # 1) 역할 + 리뷰 규칙 + 출력 형식 (incremental이면 간소화 프롬프트 사용)
+    prompt_path = REVIEW_PROMPT_INCREMENTAL_PATH if is_incremental else REVIEW_PROMPT_PATH
+    review_prompt = read_file_safe(prompt_path)
     if not review_prompt:
         print("[ERROR] review-prompt.md 없음 → 종료", file=sys.stderr)
         sys.exit(1)
@@ -606,6 +608,7 @@ def main():
 
     # 3. diff 수집 (incremental 우선)
     diff = None
+    is_incremental = False
     if args.manual_trigger:
         # manual trigger: 항상 전체 diff
         print("[INFO] Manual trigger → 전체 diff 강제 사용")
@@ -613,7 +616,8 @@ def main():
     elif last_commit and last_commit != pr_info["commit_sha"]:
         diff = get_incremental_diff(args.pr_number, last_commit, pr_info["commit_sha"])
         if diff:
-            print("[INFO] Incremental diff 사용")
+            is_incremental = True
+            print("[INFO] Incremental diff 사용 → 간소화 리뷰")
 
     if not diff:
         diff = get_pr_diff(args.pr_number)
@@ -652,6 +656,7 @@ def main():
         pr_info,
         args.repo_full_name,
         analysis.file_types,
+        is_incremental=is_incremental,
     )
     print(f"[INFO] 최종 프롬프트 길이: {len(prompt)} chars")
 

@@ -18,6 +18,10 @@ on:
         required: true
       ORG_GITHUB_TOKEN:
         required: true
+      CODE_REVIEW_APP_ID:
+        required: true
+      CODE_REVIEW_APP_PRIVATE_KEY:
+        required: true
 
 jobs:
   claude-review:
@@ -29,6 +33,14 @@ jobs:
       pull-requests: write
 
     steps:
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.CODE_REVIEW_APP_ID }}
+          private-key: ${{ secrets.CODE_REVIEW_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - name: 📥 Checkout target repository
         uses: actions/checkout@v5
         with:
@@ -53,17 +65,11 @@ jobs:
             echo "::error::Claude Code CLI가 이 Runner에 설치되어 있지 않습니다."
             exit 1
           fi
-      - name: Debug
-        run: |
-          echo "HOME=$HOME"
-          echo "USER=$(whoami)"
-          ls ~/.claude/ 2>/dev/null || echo "~/.claude not found"
-          ls ~/.config/claude/ 2>/dev/null || echo "~/.config/claude not found"
 
       - name: 🤖 Claude Code Review
         env:
           SHARED_CONFIG_DIR: .shared-config/review-config
-          GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           HOME: /Users/nhn
         run: |
