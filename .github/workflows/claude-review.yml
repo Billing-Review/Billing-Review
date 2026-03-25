@@ -74,11 +74,18 @@ jobs:
       - name: 🔑 Validate Claude authentication
         id: auth-check
         run: |
-          if claude --version > /dev/null 2>&1; then
-            echo "cli_installed=true" >> $GITHUB_OUTPUT
-          else
-            echo "cli_installed=false" >> $GITHUB_OUTPUT
+          if ! claude --version > /dev/null 2>&1; then
             echo "::error::Claude Code CLI가 이 Runner에 설치되어 있지 않습니다."
+            exit 1
+          fi
+
+          TOKEN=$(security find-generic-password -s "claude-code-credentials" -a "default" -w 2>/dev/null || echo "")
+          if [ -n "$TOKEN" ]; then
+            echo "::add-mask::$TOKEN"
+            echo "oauth_token=$TOKEN" >> $GITHUB_OUTPUT
+            echo "✅ Keychain에서 Claude 토큰 확인됨"
+          else
+            echo "::error::Keychain에서 Claude 토큰을 찾을 수 없습니다. Runner에서 'claude login'을 먼저 실행하세요."
             exit 1
           fi
 
@@ -87,6 +94,7 @@ jobs:
           SHARED_CONFIG_DIR: .shared-config/review-config
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           HOME: ${{ steps.resolve-home.outputs.user_home }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ steps.auth-check.outputs.oauth_token }}
         run: |
           python3 .shared-config/scripts/claude_review.py \
             "${{ inputs.pr_number }}" \
