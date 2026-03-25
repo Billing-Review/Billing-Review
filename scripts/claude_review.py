@@ -482,7 +482,13 @@ def build_prompt(diff: str, pr_info: dict, repo_full_name: str,
     if repo_config:
         repo_rules = _extract_repo_rules(repo_config)
         if repo_rules:
-            sections.append(f"## 이 리포지토리 추가 규칙\n\n{repo_rules}")
+            sections.append(
+                f"## 이 리포지토리 추가 규칙\n\n"
+                f"> ⚠️ 아래 규칙은 이 리포지토리의 필수 준수 사항이다. "
+                f"변경된 코드에서 위반이 발견되면 반드시 🟡 Should Fix로 개별 지적한다. "
+                f"위반한 규칙과 올바른 형태를 함께 명시한다.\n\n"
+                f"{repo_rules}"
+            )
 
     # 6) PR Diff
     diff_limited = diff[:MAX_DIFF_LENGTH]
