@@ -61,6 +61,16 @@ jobs:
           path: .shared-config
           token: ${{ secrets.ORG_GITHUB_TOKEN }}
 
+      - name: 🔍 Resolve user HOME
+        id: resolve-home
+        run: |
+          USER_HOME=$(eval echo ~$(whoami))
+          echo "user_home=$USER_HOME" >> $GITHUB_OUTPUT
+          echo "[DEBUG] whoami: $(whoami)"
+          echo "[DEBUG] HOME: $HOME"
+          echo "[DEBUG] user_home: $USER_HOME"
+          echo "[DEBUG] claude config: $(ls -la $USER_HOME/.claude/ 2>/dev/null || echo 'not found')"
+
       - name: 🔑 Validate Claude authentication
         id: auth-check
         run: |
@@ -76,6 +86,7 @@ jobs:
         env:
           SHARED_CONFIG_DIR: .shared-config/review-config
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          HOME: ${{ steps.resolve-home.outputs.user_home }}
         run: |
           python3 .shared-config/scripts/claude_review.py \
             "${{ inputs.pr_number }}" \
