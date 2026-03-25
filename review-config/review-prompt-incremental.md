@@ -78,7 +78,7 @@ Critical/Warning 이슈가 있으면 건수를 표기한다.
 
 ```
 {
-  "review": "## 🤖 AI 코드 리뷰 (증분)\n\n### 📋 전체 요약\n이전 리뷰 피드백을 반영하여 예외 처리가 개선되었습니다.\n\n---\n\n### 🔵 제안 사항 (Optional)\n- PaymentService.java - retry 로직에 backoff 전략 적용을 고려해볼 수 있습니다.",
+  "review": "## 🤖 AI 코드 리뷰 (e4f5g6h)\n\n### 📋 요약\n이전 리뷰 피드백을 반영하여 예외 처리가 개선되었습니다.\n\n---\n\n### 🔵 제안 사항 (Optional)\n- PaymentService.java - retry 로직에 backoff 전략 적용을 고려해볼 수 있습니다.",
   "comments": []
 }
 ```

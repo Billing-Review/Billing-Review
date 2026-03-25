@@ -443,6 +443,13 @@ def build_prompt(diff: str, pr_info: dict, repo_full_name: str,
     if not review_prompt:
         print("[ERROR] review-prompt.md 없음 → 종료", file=sys.stderr)
         sys.exit(1)
+    # incremental일 때 현재 커밋 ID를 프롬프트 제목에 반영 (full SHA → GitHub에서 자동 링크)
+    if is_incremental:
+        commit_sha = pr_info["commit_sha"]
+        review_prompt = review_prompt.replace(
+            "🤖 AI 코드 리뷰 (증분)",
+            f"🤖 AI 코드 리뷰 ({commit_sha})",
+        )
     sections.append(review_prompt)
 
     # 2) PR 정보
