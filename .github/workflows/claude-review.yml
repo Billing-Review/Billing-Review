@@ -33,13 +33,21 @@ jobs:
       pull-requests: write
 
     steps:
+      - name: 🔍 Parse repo owner and name
+        id: parse-repo
+        run: |
+          IFS='/' read -r owner repo <<< "${{ inputs.repo_name }}"
+          echo "owner=$owner" >> $GITHUB_OUTPUT
+          echo "repo=$repo" >> $GITHUB_OUTPUT
+
       - name: 🔑 Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.CODE_REVIEW_APP_ID }}
           private-key: ${{ secrets.CODE_REVIEW_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
+          owner: ${{ steps.parse-repo.outputs.owner }}
+          repositories: ${{ steps.parse-repo.outputs.repo }}
 
       - name: 📥 Checkout target repository
         uses: actions/checkout@v5
