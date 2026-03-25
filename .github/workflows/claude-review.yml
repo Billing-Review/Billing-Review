@@ -79,7 +79,7 @@ jobs:
             exit 1
           fi
 
-          TOKEN=$(security find-generic-password -s "claude-code-credentials" -a "default" -w 2>/dev/null || echo "")
+          TOKEN=$(security find-generic-password -s "Claude Code-credentials" -a "default" -w 2>/dev/null || echo "")
           if [ -n "$TOKEN" ]; then
             echo "::add-mask::$TOKEN"
             echo "oauth_token=$TOKEN" >> $GITHUB_OUTPUT
