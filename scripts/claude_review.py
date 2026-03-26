@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Set
 # 상수
 # ============================================================
 
-SHARED_CONFIG_DIR = os.environ.get("SHARED_CONFIG_DIR", ".shared-config/review-config")
+SHARED_CONFIG_DIR = os.environ.get("SHARED_CONFIG_DIR", ".shared-config/claude-review-config")
 
 REVIEW_PROMPT_PATH             = os.path.join(SHARED_CONFIG_DIR, "review-prompt.md")
 REVIEW_PROMPT_INCREMENTAL_PATH = os.path.join(SHARED_CONFIG_DIR, "review-prompt-incremental.md")

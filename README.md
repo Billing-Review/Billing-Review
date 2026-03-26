@@ -10,7 +10,7 @@
 {org-repo}/
 ├── .github/workflows/      ← Reusable Workflows
 ├── scripts/                ← Workflow 실행 스크립트
-├── review-config/          ← Claude Code Review 설정 및 가이드
+├── claude-review-config/   ← Claude Code Review 설정 및 가이드
 │   ├── review-prompt.md    ← Claude 역할 정의 + 출력 형식
 │   ├── conventions.md      ← 공통 코딩 컨벤션
 │   └── skills/             ← 기술 스택별 리뷰 가이드

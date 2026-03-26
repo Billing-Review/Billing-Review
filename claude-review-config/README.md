@@ -35,7 +35,7 @@ GitHub PR에 리뷰 게시
 ## 📁 디렉토리 구조
 
 ```
-review-config/
+claude-review-config/
 ├── review-prompt.md                ← Claude 역할 정의 + 출력 형식 (전체 리뷰)
 ├── review-prompt-incremental.md    ← Claude 역할 정의 + 출력 형식 (증분 리뷰)
 ├── conventions.md                  ← 공통 코딩 컨벤션
@@ -193,10 +193,10 @@ DEFAULT_SKILL_BY_FILE_TYPE = {
 }
 ```
 
-**② `review-config/skills/{skill-name}.md` 생성**
+**② `claude-review-config/skills/{skill-name}.md` 생성**
 
 > skill 이름과 파일명이 **정확히 일치**해야 합니다.
 
 ### 공통 컨벤션 변경
 
-`review-config/conventions.md` 파일을 수정합니다.
+`claude-review-config/conventions.md` 파일을 수정합니다.

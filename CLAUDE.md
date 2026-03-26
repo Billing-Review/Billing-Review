@@ -18,7 +18,7 @@ This is a **centralized PR code review system** that uses Claude Code CLI to aut
 5. Calls `claude -p` with the assembled prompt
 6. Parses JSON response and posts as a GitHub PR review with inline comments
 
-**Config Structure** (`review-config/`):
+**Config Structure** (`claude-review-config/`):
 - `review-prompt.md` — Core system prompt defining review role, severity levels, output JSON format
 - `conventions.md` — Organization-wide coding conventions (Korean, Java-focused)
 - `skills/` — Technology-specific review knowledge (e.g., `java-spring.md`, `jpa.md`, `kafka.md`, `redis.md`)
@@ -58,7 +58,7 @@ Requires `gh` CLI authenticated and `claude` CLI installed (`npm install -g @ant
 
 ## Adding a New Repository
 
-Create `review-config/repo/{repo-name}.md` with:
+Create `claude-review-config/repo/{repo-name}.md` with:
 - `## 기술 스택` section listing skill names (matching filenames in `skills/`)
 - `## 리뷰 제외` section with glob patterns for files to skip
 - Any additional repo-specific review rules
