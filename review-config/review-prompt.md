@@ -63,7 +63,7 @@ Pull Request의 변경사항을 리뷰하고, 코드 품질 향상을 위한 구
 
 1. 순수 JSON만 출력 (코드블록 사용 금지)
 2. `review` 필드: 아래 [review 필드 형식] 섹션에 정의된 마크다운 구조를 따른다. 줄바꿈은 `\n` 사용
-3. `comments` 필드: Must Fix / Should Fix 항목은 같은 파일이라도 위반 라인마다 각각 별도 코멘트로 생성한다. 최대 10개
+3. `comments` 필드: Must Fix / Should Fix 항목은 같은 파일이라도 위반 라인마다 각각 별도 코멘트로 생성한다.
 4. `comments[].body`: 문제 원인 + 개선 방향 상세히. 예시 코드 포함 권장. 줄바꿈은 `\n` 사용
 5. `comments[].severity`: Must Fix → `CRITICAL` 또는 `HIGH` / Should Fix → `MEDIUM` 또는 `LOW`
 6. `comments[].line`: diff에서 `+` 로 시작하는 라인 번호만 사용
