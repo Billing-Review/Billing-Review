@@ -20,7 +20,7 @@ REVIEW_PROMPT_PATH             = os.path.join(SHARED_CONFIG_DIR, "review-prompt.
 REVIEW_PROMPT_INCREMENTAL_PATH = os.path.join(SHARED_CONFIG_DIR, "review-prompt-incremental.md")
 CONVENTIONS_PATH               = os.path.join(SHARED_CONFIG_DIR, "conventions.md")
 SKILLS_DIR         = os.path.join(SHARED_CONFIG_DIR, "skills")
-REPO_CONFIG_PATH   = os.path.join(".claude", "docs", "review-config.md")
+REPO_CONFIG_PATH   = os.path.join(".claude", "rules", "CODE_REVIEW.md")
 
 MAX_DIFF_LENGTH  = int(os.environ.get("MAX_DIFF_LENGTH", "100000"))
 MAX_SKILL_CHARS  = int(os.environ.get("MAX_SKILL_CHARS", "5000"))

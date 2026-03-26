@@ -22,7 +22,7 @@ This is a **centralized PR code review system** that uses Claude Code CLI to aut
 - `review-prompt.md` — Core system prompt defining review role, severity levels, output JSON format
 - `conventions.md` — Organization-wide coding conventions (Korean, Java-focused)
 - `skills/` — Technology-specific review knowledge (e.g., `java-spring.md`, `jpa.md`, `kafka.md`, `redis.md`)
-- `repo/` — Per-repository config files named `{repo-name}.md`, declaring tech stack (maps to skills), exclude patterns, and repo-specific rules
+- Per-repository config is stored in each repo's `.claude/rules/CODE_REVIEW.md`, declaring tech stack (maps to skills), exclude patterns, and repo-specific rules
 
 ## Key Design Decisions
 
@@ -58,7 +58,7 @@ Requires `gh` CLI authenticated and `claude` CLI installed (`npm install -g @ant
 
 ## Adding a New Repository
 
-Create `claude-review-config/repo/{repo-name}.md` with:
+Create `.claude/rules/CODE_REVIEW.md` in the target repository with:
 - `## 기술 스택` section listing skill names (matching filenames in `skills/`)
 - `## 리뷰 제외` section with glob patterns for files to skip
 - Any additional repo-specific review rules
