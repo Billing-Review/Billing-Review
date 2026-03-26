@@ -20,7 +20,7 @@ REVIEW_PROMPT_PATH             = os.path.join(SHARED_CONFIG_DIR, "review-prompt.
 REVIEW_PROMPT_INCREMENTAL_PATH = os.path.join(SHARED_CONFIG_DIR, "review-prompt-incremental.md")
 CONVENTIONS_PATH               = os.path.join(SHARED_CONFIG_DIR, "conventions.md")
 SKILLS_DIR         = os.path.join(SHARED_CONFIG_DIR, "skills")
-REPO_CONFIG_DIR    = os.path.join(SHARED_CONFIG_DIR, "repo")
+REPO_CONFIG_PATH   = os.path.join(".claude", "docs", "review-config.md")
 
 MAX_DIFF_LENGTH  = int(os.environ.get("MAX_DIFF_LENGTH", "100000"))
 MAX_SKILL_CHARS  = int(os.environ.get("MAX_SKILL_CHARS", "5000"))
@@ -337,8 +337,8 @@ def read_file_safe(path: str) -> str:
 
 
 def find_repo_config(repo_full_name: str) -> str:
-    repo_name = repo_full_name.split("/")[-1]
-    return read_file_safe(os.path.join(REPO_CONFIG_DIR, f"{repo_name}.md"))
+    """대상 repo의 .claude/docs/review-config.md를 읽는다."""
+    return read_file_safe(REPO_CONFIG_PATH)
 
 
 def parse_skill_names(repo_config_content: str) -> List[str]:
