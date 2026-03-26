@@ -19,7 +19,7 @@ Self-hosted Runner에서 실행
   2. {org-repo} checkout (.shared-config/)
   3. claude_review.py 실행
         ↓
-Repo 설정 로드 (대상 repo의 .claude/docs/review-config.md)
+Repo 설정 로드 (대상 repo의 .claude/rules/CODE_REVIEW.md)
         ↓
 Skills 로드
   1순위: repo 설정의 기술 스택 선언
@@ -42,7 +42,7 @@ claude-review-config/
 └── skills/                         ← 기술 스택별 리뷰 가이드
 ```
 
-> Repo별 설정은 각 대상 repo의 `.claude/docs/review-config.md`에서 관리합니다.
+> Repo별 설정은 각 대상 repo의 `.claude/rules/CODE_REVIEW.md`에서 관리합니다.
 
 ---
 
@@ -130,7 +130,7 @@ jobs:
 
 ### 3. Repo별 설정 (선택)
 
-대상 repo에 `.claude/docs/review-config.md` 파일을 생성합니다.
+대상 repo에 `.claude/rules/CODE_REVIEW.md` 파일을 생성합니다.
 
 #### 파일 형식
 

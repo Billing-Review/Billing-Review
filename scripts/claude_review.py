@@ -337,7 +337,7 @@ def read_file_safe(path: str) -> str:
 
 
 def find_repo_config(repo_full_name: str) -> str:
-    """대상 repo의 .claude/docs/review-config.md를 읽는다."""
+    """대상 repo의 .claude/rules/CODE_REVIEW.md를 읽는다."""
     return read_file_safe(REPO_CONFIG_PATH)
 
 
