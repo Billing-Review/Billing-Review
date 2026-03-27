@@ -14,8 +14,6 @@ on:
         type: boolean
         default: false
     secrets:
-      ORG_GITHUB_TOKEN:
-        required: true
       CODE_REVIEW_APP_ID:
         required: true
       CODE_REVIEW_APP_PRIVATE_KEY:
@@ -47,21 +45,21 @@ jobs:
           app-id: ${{ secrets.CODE_REVIEW_APP_ID }}
           private-key: ${{ secrets.CODE_REVIEW_APP_PRIVATE_KEY }}
           owner: ${{ steps.parse-repo.outputs.owner }}
-          repositories: ${{ steps.parse-repo.outputs.repo }}
+          repositories: ${{ steps.parse-repo.outputs.repo }}, Billing-Review
 
       - name: 📥 Checkout target repository
         uses: actions/checkout@v5
         with:
           repository: ${{ inputs.repo_name }}
           fetch-depth: 0
-          token: ${{ secrets.ORG_GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: 📥 Checkout shared config
         uses: actions/checkout@v5
         with:
           repository: ${{ github.repository_owner }}/Billing-Review
           path: .shared-config
-          token: ${{ secrets.ORG_GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: 🔑 Validate Claude CLI
         run: |
