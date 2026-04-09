@@ -45,7 +45,7 @@ jobs:
           app-id: ${{ secrets.CODE_REVIEW_APP_ID }}
           private-key: ${{ secrets.CODE_REVIEW_APP_PRIVATE_KEY }}
           owner: ${{ steps.parse-repo.outputs.owner }}
-          repositories: ${{ steps.parse-repo.outputs.repo }}, Billing-Review
+          repositories: ${{ steps.parse-repo.outputs.repo }}, shared-workflows
 
       - name: 📥 Checkout target repository
         uses: actions/checkout@v5
@@ -57,7 +57,7 @@ jobs:
       - name: 📥 Checkout shared config
         uses: actions/checkout@v5
         with:
-          repository: ${{ github.repository_owner }}/Billing-Review
+          repository: ${{ github.repository_owner }}/shared-workflows
           path: .shared-config
           token: ${{ steps.app-token.outputs.token }}
 
