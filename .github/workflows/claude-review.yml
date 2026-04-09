@@ -24,7 +24,7 @@ on:
 jobs:
   claude-review:
     runs-on:
-      group: claude-code-review
+      group: billing-dev
 
     permissions:
       contents: read
