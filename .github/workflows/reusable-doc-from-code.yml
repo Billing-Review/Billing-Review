@@ -1,0 +1,78 @@
+name: Reusable - Generate API Doc from Code
+
+on:
+  workflow_call:
+    inputs:
+      repo_name:
+        required: true
+        type: string
+      branch:
+        required: true
+        type: string
+        description: "코드를 읽을 브랜치"
+      api_paths:
+        required: true
+        type: string
+        description: "쉼표로 구분된 API 파일 경로 (예: src/main/.../OrderController.java)"
+      url_hint:
+        required: false
+        type: string
+        default: ""
+        description: "위키 경로 힌트 (internal/external). 미입력 시 파일 경로에서 자동 감지"
+    secrets:
+      GITHUB_TOKEN:
+        required: true
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+    outputs:
+      doc_content:
+        description: "생성된 API 문서 마크다운"
+        value: ${{ jobs.generate.outputs.doc_content }}
+      title:
+        description: "위키 페이지 제목"
+        value: ${{ jobs.generate.outputs.title }}
+      url_hint:
+        description: "위키 경로 분류용 힌트"
+        value: ${{ jobs.generate.outputs.url_hint }}
+
+jobs:
+  generate:
+    runs-on:
+      group: billing-dev
+    outputs:
+      doc_content: ${{ steps.generate-doc.outputs.doc_content }}
+      title: ${{ steps.generate-doc.outputs.title }}
+      url_hint: ${{ steps.generate-doc.outputs.url_hint }}
+
+    steps:
+      - name: Checkout calling repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repo_name }}
+          ref: ${{ inputs.branch }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checkout shared-workflows (스크립트 및 프롬프트 파일용)
+        uses: actions/checkout@v4
+        with:
+          repository: dev-billing/shared-workflows
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: shared-config
+
+      - name: Validate Claude CLI
+        run: |
+          if ! claude --version > /dev/null 2>&1; then
+            echo "::error::Claude Code CLI가 이 Runner에 설치되어 있지 않습니다."
+            exit 1
+          fi
+          echo "✅ Claude CLI 확인됨: $(claude --version)"
+
+      - name: Generate API doc from code
+        id: generate-doc
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          REPO_NAME: ${{ inputs.repo_name }}
+          BRANCH: ${{ inputs.branch }}
+          API_PATHS: ${{ inputs.api_paths }}
+          URL_HINT_INPUT: ${{ inputs.url_hint }}
+        run: python3 shared-config/scripts/reusable-doc-from-code.py
