@@ -9,6 +9,11 @@ on:
       repo_name:
         required: true
         type: string
+      target_branch:
+        required: false
+        type: string
+        default: ""
+        description: "PR이 merge된 브랜치 (master → [real], develop → [alpha])"
     secrets:
       GITHUB_TOKEN:
         required: true
@@ -68,4 +73,5 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           PR_NUMBER: ${{ inputs.pr_number }}
           REPO_NAME: ${{ inputs.repo_name }}
+          TARGET_BRANCH: ${{ inputs.target_branch }}
         run: python3 shared-config/scripts/reusable-doc-from-diff.py

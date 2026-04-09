@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -31,6 +32,7 @@ CLAUDE_TIMEOUT   = int(os.environ.get("CLAUDE_TIMEOUT", "300"))
 MAX_SUMMARY_FALLBACK_LENGTH = 5000
 
 DIFF_GIT_PATTERN = re.compile(r"diff --git a/(.+?) b/(.+?)$")
+DIFF_HASH_PATTERN = re.compile(r"<!-- diff-hash:([a-f0-9]{64}) -->")
 
 SEVERITY_EMOJI = {
     "CRITICAL":   "🔴",
@@ -96,7 +98,7 @@ def verify_claude_auth() -> None:
 
 
 def verify_gh_auth() -> None:
-    gh_host = os.environ.get("GH_HOST", "github.com")
+    gh_host = os.environ.get("GH_HOST", "github.nhnent.com")
     gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GH_ENTERPRISE_TOKEN")
     if gh_token:
         print(f"[INFO] GH 인증: token 사용 ({gh_host}), prefix={gh_token[:4]}...")
@@ -136,9 +138,15 @@ def get_pr_diff(pr_number: str) -> str:
     return run_gh(["pr", "diff", pr_number])
 
 
-def get_existing_claude_review_commit(pr_number: str, pr_info: dict) -> Optional[str]:
-    """이전 Claude 리뷰의 마지막 커밋 SHA를 반환한다."""
+def compute_diff_hash(diff: str) -> str:
+    """diff 내용의 SHA-256 해시를 계산한다."""
+    return hashlib.sha256(diff.encode("utf-8")).hexdigest()
+
+
+def get_existing_claude_review(pr_number: str, pr_info: dict) -> dict:
+    """이전 Claude 리뷰에서 마지막 커밋 SHA와 diff-hash를 반환한다."""
     owner, repo = pr_info["owner"], pr_info["repo"]
+    result_data = {"commit_id": None, "diff_hash": None}
     try:
         result = subprocess.run(
             [
@@ -149,7 +157,6 @@ def get_existing_claude_review_commit(pr_number: str, pr_info: dict) -> Optional
             ],
             capture_output=True, encoding="utf-8",
         )
-        last_commit = None
         for line in result.stdout.strip().split("\n"):
             line = line.strip()
             if not line:
@@ -157,13 +164,17 @@ def get_existing_claude_review_commit(pr_number: str, pr_info: dict) -> Optional
             try:
                 review = json.loads(line)
                 if review.get("commit_id"):
-                    last_commit = review["commit_id"]
+                    result_data["commit_id"] = review["commit_id"]
+                body = review.get("body", "")
+                hash_match = DIFF_HASH_PATTERN.search(body)
+                if hash_match:
+                    result_data["diff_hash"] = hash_match.group(1)
             except json.JSONDecodeError:
                 pass
-        return last_commit
+        return result_data
     except Exception as e:
         print(f"[WARN] 기존 리뷰 조회 실패: {e}", file=sys.stderr)
-        return None
+        return result_data
 
 
 def get_incremental_diff(pr_number: str, since_commit: str, head_commit: str) -> Optional[str]:
@@ -176,7 +187,8 @@ def get_incremental_diff(pr_number: str, since_commit: str, head_commit: str) ->
     return None
 
 
-def post_review(pr_number: str, pr_info: dict, review_data: dict, diff_mappings: dict) -> None:
+def post_review(pr_number: str, pr_info: dict, review_data: dict, diff_mappings: dict,
+                diff_hash: str = "") -> None:
     """GitHub Code Review API로 리뷰를 게시한다."""
     owner, repo, commit_sha = pr_info["owner"], pr_info["repo"], pr_info["commit_sha"]
 
@@ -205,6 +217,9 @@ def post_review(pr_number: str, pr_info: dict, review_data: dict, diff_mappings:
 
     review_body = review_data.get("review", "## 🤖 AI 코드 리뷰\n\n리뷰가 완료되었습니다.")
     review_body = review_body.replace("\\n", "\n").replace("\\t", "\t")
+
+    if diff_hash:
+        review_body += f"\n\n<!-- diff-hash:{diff_hash} -->"
 
     payload = {
         "commit_id": commit_sha,
@@ -598,7 +613,7 @@ def main():
     args = parser.parse_args()
 
     args.manual_trigger = args.manual_trigger.lower() == "true"  # str → bool 변환
-    gh_host = os.environ.get("GH_HOST", "github.com")
+    gh_host = os.environ.get("GH_HOST", "github.nhnent.com")
     os.environ["GH_HOST"] = gh_host
 
     verify_gh_auth()
@@ -612,20 +627,38 @@ def main():
     print(f"[INFO] commit: {pr_info['commit_sha'][:8]}")
     print(f"[INFO] title: {pr_info['title']}")
 
-    # 2. 이전 리뷰 커밋 조회
-    last_commit = get_existing_claude_review_commit(args.pr_number, pr_info)
+    # 2. 이전 리뷰 조회 (커밋 SHA + diff-hash)
+    prev_review = get_existing_claude_review(args.pr_number, pr_info)
+    last_commit = prev_review["commit_id"]
+    prev_diff_hash = prev_review["diff_hash"]
     if last_commit:
         print(f"[INFO] 이전 리뷰 커밋: {last_commit[:8]}")
     else:
         print("[INFO] 이전 리뷰 없음 → 전체 diff 사용")
+    if prev_diff_hash:
+        print(f"[INFO] 이전 리뷰 diff-hash: {prev_diff_hash[:16]}...")
 
-    # 3. diff 수집 (incremental 우선)
+    # 3. diff 수집
+    full_pr_diff = get_pr_diff(args.pr_number)
+
+    if not full_pr_diff.strip():
+        print("[WARN] 변경 사항 없음 → 종료")
+        return
+
+    # 3-1. diff-hash 비교 → rebase 등 실제 변경 없으면 스킵
+    current_diff_hash = compute_diff_hash(full_pr_diff)
+    print(f"[INFO] 현재 diff-hash: {current_diff_hash[:16]}...")
+
+    if not args.manual_trigger and prev_diff_hash and prev_diff_hash == current_diff_hash:
+        print("[INFO] diff-hash 동일 → 코드 변경 없음 (rebase 등) → 리뷰 스킵")
+        return
+
+    # 3-2. incremental diff 시도
     diff = None
     is_incremental = False
     if args.manual_trigger:
-        # manual trigger: 항상 전체 diff
         print("[INFO] Manual trigger → 전체 diff 강제 사용")
-        diff = get_pr_diff(args.pr_number)
+        diff = full_pr_diff
     elif last_commit and last_commit != pr_info["commit_sha"]:
         diff = get_incremental_diff(args.pr_number, last_commit, pr_info["commit_sha"])
         if diff:
@@ -633,12 +666,8 @@ def main():
             print("[INFO] Incremental diff 사용 → 간소화 리뷰")
 
     if not diff:
-        diff = get_pr_diff(args.pr_number)
+        diff = full_pr_diff
         print("[INFO] 전체 diff 사용")
-
-    if not diff.strip():
-        print("[WARN] 변경 사항 없음 → 종료")
-        return
 
     # 4. diff 분석 및 제외 패턴 필터링
     analysis = analyze_diff(diff)
@@ -683,8 +712,8 @@ def main():
     for i, c in enumerate(review_data.get("comments", []), 1):
         print(f"  [{i}] {c.get('severity')} {c.get('path')}:{c.get('line')} - {c.get('body', '')[:60]}")
 
-    # 7. 게시
-    post_review(args.pr_number, pr_info, review_data, diff_mappings)
+    # 7. 게시 (diff-hash 포함)
+    post_review(args.pr_number, pr_info, review_data, diff_mappings, diff_hash=current_diff_hash)
 
 if __name__ == "__main__":
     main()

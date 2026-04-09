@@ -172,7 +172,15 @@ PR 설명: {pr_body}
     doc_content = call_claude(prompt)
 
     # 6. 결과 출력
-    title = f"[API Draft] {pr_title}"
+    target_branch = os.environ.get("TARGET_BRANCH", "")
+    if target_branch == "master":
+        env_prefix = "[real]"
+    elif target_branch == "develop":
+        env_prefix = "[alpha]"
+    else:
+        env_prefix = ""
+
+    title = f"[API Draft]{' ' + env_prefix if env_prefix else ''} {pr_title}"
     url_hint = ""
     if "internal" in api_diff.lower():
         url_hint = "internal"
