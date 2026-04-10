@@ -41,10 +41,33 @@ def classify_wiki_path(url_hint: str) -> str:
     return "빌링서비스실 내부"
 
 
+def get_wiki_id(api_key: str, member_id: str, project_id: str, base_url: str) -> str:
+    url = f"{base_url}/wiki/v1/wikis?projectId={project_id}"
+    req = urllib.request.Request(
+        url,
+        headers={"Authorization": f"dooray-api {member_id}:{api_key}"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+            results = data.get("result", [])
+            if not results:
+                print(f"프로젝트 {project_id}에 연결된 위키를 찾을 수 없습니다.", file=sys.stderr)
+                sys.exit(1)
+            wiki_id = results[0].get("id", "")
+            print(f"[INFO] wiki_id 조회 완료: {wiki_id}")
+            return wiki_id
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()
+        print(f"위키 조회 오류: {e.code}\n{body}", file=sys.stderr)
+        sys.exit(1)
+
+
 def create_dooray_page(
     api_key: str,
     member_id: str,
-    project_id: str,
+    wiki_id: str,
     parent_page_id: str,
     title: str,
     content: str,
@@ -59,10 +82,10 @@ def create_dooray_page(
         },
         "referrers": [],
     }
-    url = f"{base_url}/wiki/v1/projects/{project_id}/wiki-pages"
+    url = f"{base_url}/wiki/v1/wikis/{wiki_id}/wiki-pages"
     body_bytes = json.dumps(payload).encode()
     print(f"[INFO] Dooray API URL: {url}")
-    print(f"[INFO] project_id: {project_id}")
+    print(f"[INFO] wiki_id: {wiki_id}")
     print(f"[INFO] parent_page_id: {parent_page_id}")
     print(f"[INFO] payload: {json.dumps({k: v[:30] + '...' if isinstance(v, str) and len(v) > 30 else v for k, v in payload.items()})}")
     req = urllib.request.Request(
@@ -106,6 +129,8 @@ def main():
             print(f"{var} 환경 변수가 필요합니다.", file=sys.stderr)
             sys.exit(1)
 
+    wiki_id = get_wiki_id(api_key, member_id, project_id, base_url)
+
     wiki_category = classify_wiki_path(url_hint)
 
     now = datetime.datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -117,7 +142,7 @@ def main():
 {doc_content}"""
 
     result = create_dooray_page(
-        api_key, member_id, project_id, parent_page_id, title, full_content, base_url
+        api_key, member_id, wiki_id, parent_page_id, title, full_content, base_url
     )
 
     page_id = result.get("result", {}).get("id", "")
