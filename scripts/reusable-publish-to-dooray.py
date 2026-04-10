@@ -48,14 +48,14 @@ def create_dooray_page(
     parent_page_id: str,
     title: str,
     content: str,
+    base_url: str,
 ) -> dict:
     payload = {
         "title": title,
         "content": content,
         "parentPageId": parent_page_id,
-        "status": "draft",
     }
-    url = f"https://api.dooray.com/wiki/v1/projects/{project_id}/pages"
+    url = f"{base_url}/wiki/v1/projects/{project_id}/pages"
     body_bytes = json.dumps(payload).encode()
     print(f"[INFO] Dooray API URL: {url}")
     print(f"[INFO] project_id: {project_id}")
@@ -84,6 +84,7 @@ def main():
     member_id = os.environ.get("DOORAY_MEMBER_ID", "")
     project_id = os.environ.get("DOORAY_PROJECT_ID", "")
     parent_page_id = os.environ.get("DOORAY_DRAFT_PARENT_PAGE_ID", "")
+    base_url = os.environ.get("DOORAY_BASE_URL", "https://nhnent.dooray.com")
     title = os.environ.get("TITLE", "")
     doc_content = os.environ.get("DOC_CONTENT", "")
     url_hint = os.environ.get("URL_HINT", "")
@@ -112,11 +113,11 @@ def main():
 {doc_content}"""
 
     result = create_dooray_page(
-        api_key, member_id, project_id, parent_page_id, title, full_content
+        api_key, member_id, project_id, parent_page_id, title, full_content, base_url
     )
 
     page_id = result.get("result", {}).get("id", "")
-    page_url = f"https://api.dooray.com/wiki/v1/projects/{project_id}/pages/{page_id}"
+    page_url = f"{base_url}/wiki/{project_id}/{page_id}"
 
     set_output("page_id", page_id)
     set_output("page_url", page_url)
