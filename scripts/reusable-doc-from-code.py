@@ -187,6 +187,8 @@ def call_claude(prompt: str) -> str:
             env=env,
         )
         output = result.stdout.strip()
+        if result.stderr:
+            print(f"[INFO] Claude stderr: {result.stderr[:500]}")
         print(f"[INFO] Claude 응답: {len(output)} chars")
         return output
     except subprocess.CalledProcessError as e:

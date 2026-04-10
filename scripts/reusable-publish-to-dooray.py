@@ -21,6 +21,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from datetime import timezone
 
 
 def set_output(name: str, value: str):
@@ -55,9 +56,14 @@ def create_dooray_page(
         "status": "draft",
     }
     url = f"https://api.dooray.com/wiki/v1/projects/{project_id}/pages"
+    body_bytes = json.dumps(payload).encode()
+    print(f"[INFO] Dooray API URL: {url}")
+    print(f"[INFO] project_id: {project_id}")
+    print(f"[INFO] parent_page_id: {parent_page_id}")
+    print(f"[INFO] payload: {json.dumps({k: v[:30] + '...' if isinstance(v, str) and len(v) > 30 else v for k, v in payload.items()})}")
     req = urllib.request.Request(
         url,
-        data=json.dumps(payload).encode(),
+        data=body_bytes,
         headers={
             "Authorization": f"dooray-api {member_id}:{api_key}",
             "Content-Type": "application/json",
@@ -97,7 +103,7 @@ def main():
 
     wiki_category = classify_wiki_path(url_hint)
 
-    now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     full_content = f"""> **[Draft]** 자동 생성된 API 문서입니다. 검토 후 publish 하세요.
 > 생성 시각: {now} | 위키 분류: {wiki_category}
 
