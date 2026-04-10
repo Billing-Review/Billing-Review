@@ -62,6 +62,9 @@ jobs:
       page_url: ${{ steps.publish.outputs.page_url }}
 
     steps:
+      - name: Clean workspace
+        run: find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+
       - name: Checkout shared-workflows (스크립트 파일용)
         uses: actions/checkout@v4
         with:
@@ -86,6 +89,10 @@ jobs:
           API_KEY: ${{ inputs.api_key }}
           REPO_NAME: ${{ inputs.repo_name }}
         run: python3 shared-config/scripts/reusable-publish-final.py
+
+      - name: Cleanup workspace
+        if: always()
+        run: find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
 
       - name: Summary
         run: |

@@ -144,6 +144,9 @@ def git_commit_and_push(repo_dir: str, files: list, message: str):
 
 
 def checkout_service_repo(repo_name: str, token: str) -> bool:
+    if os.path.exists(SERVICE_REPO_DIR):
+        import shutil
+        shutil.rmtree(SERVICE_REPO_DIR)
     url = f"https://x-access-token:{token}@github.com/{repo_name}.git"
     result = subprocess.run(
         ["git", "clone", "--depth=1", url, SERVICE_REPO_DIR],

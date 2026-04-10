@@ -53,6 +53,9 @@ jobs:
       api_key: ${{ steps.generate-doc.outputs.api_key }}
 
     steps:
+      - name: Clean workspace
+        run: find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+
       - name: Checkout calling repo
         uses: actions/checkout@v4
         with:
@@ -85,3 +88,7 @@ jobs:
           API_PATHS: ${{ inputs.api_paths }}
           URL_HINT_INPUT: ${{ inputs.url_hint }}
         run: python3 shared-config/scripts/reusable-doc-from-code.py
+
+      - name: Cleanup workspace
+        if: always()
+        run: find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
