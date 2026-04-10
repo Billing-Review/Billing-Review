@@ -98,7 +98,7 @@ def verify_claude_auth() -> None:
 
 
 def verify_gh_auth() -> None:
-    gh_host = os.environ.get("GH_HOST", "github.nhnent.com")
+    gh_host = os.environ.get("GH_HOST", "github.com")
     gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GH_ENTERPRISE_TOKEN")
     if gh_token:
         print(f"[INFO] GH 인증: token 사용 ({gh_host}), prefix={gh_token[:4]}...")
