@@ -41,29 +41,6 @@ def classify_wiki_path(url_hint: str) -> str:
     return "빌링서비스실 내부"
 
 
-def get_wiki_id(api_key: str, member_id: str, project_id: str, base_url: str) -> str:
-    url = f"{base_url}/wiki/v1/wikis?projectId={project_id}"
-    req = urllib.request.Request(
-        url,
-        headers={"Authorization": f"dooray-api {member_id}:{api_key}"},
-        method="GET",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read())
-            results = data.get("result", [])
-            if not results:
-                print(f"프로젝트 {project_id}에 연결된 위키를 찾을 수 없습니다.", file=sys.stderr)
-                sys.exit(1)
-            wiki_id = results[0].get("id", "")
-            print(f"[INFO] wiki_id 조회 완료: {wiki_id}")
-            return wiki_id
-    except urllib.error.HTTPError as e:
-        body = e.read().decode()
-        print(f"위키 조회 오류: {e.code}\n{body}", file=sys.stderr)
-        sys.exit(1)
-
-
 def create_dooray_page(
     api_key: str,
     member_id: str,
@@ -109,6 +86,7 @@ def create_dooray_page(
 def main():
     api_key = os.environ.get("DOORAY_API_KEY", "")
     member_id = os.environ.get("DOORAY_MEMBER_ID", "")
+    wiki_id = os.environ.get("DOORAY_WIKI_ID", "")
     project_id = os.environ.get("DOORAY_PROJECT_ID", "")
     parent_page_id = os.environ.get("DOORAY_DRAFT_PARENT_PAGE_ID", "")
     base_url = os.environ.get("DOORAY_BASE_URL", "https://nhnent.dooray.com")
@@ -119,6 +97,7 @@ def main():
     required = {
         "DOORAY_API_KEY": api_key,
         "DOORAY_MEMBER_ID": member_id,
+        "DOORAY_WIKI_ID": wiki_id,
         "DOORAY_PROJECT_ID": project_id,
         "DOORAY_DRAFT_PARENT_PAGE_ID": parent_page_id,
         "TITLE": title,
@@ -128,8 +107,6 @@ def main():
         if not val:
             print(f"{var} 환경 변수가 필요합니다.", file=sys.stderr)
             sys.exit(1)
-
-    wiki_id = get_wiki_id(api_key, member_id, project_id, base_url)
 
     wiki_category = classify_wiki_path(url_hint)
 
