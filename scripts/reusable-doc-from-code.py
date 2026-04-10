@@ -16,9 +16,9 @@ REST API URL 경로로 Controller/Handler 파일을 검색하고 Claude CLI로 A
 """
 
 import os
+import re
 import subprocess
 import sys
-from pathlib import Path
 
 PROMPT_DIR = "shared-config/write-api-docs"
 SYSTEM_PROMPT_FILE = f"{PROMPT_DIR}/docs-writer.md"
@@ -27,8 +27,6 @@ CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-20250514")
 CLAUDE_TIMEOUT = int(os.environ.get("CLAUDE_TIMEOUT", "120"))
 MAX_FILE_CHARS = 8000
 CONTROLLER_PATTERN = re.compile(r"(Controller|Handler|Router)\.(java|kt|go|py|ts|js)$")
-
-import re
 
 
 def set_output(name: str, value: str):
