@@ -613,7 +613,7 @@ def main():
     args = parser.parse_args()
 
     args.manual_trigger = args.manual_trigger.lower() == "true"  # str → bool 변환
-    gh_host = os.environ.get("GH_HOST", "github.nhnent.com")
+    gh_host = os.environ.get("GH_HOST", "github.com")
     os.environ["GH_HOST"] = gh_host
 
     verify_gh_auth()
