@@ -51,11 +51,15 @@ def create_dooray_page(
     base_url: str,
 ) -> dict:
     payload = {
-        "title": title,
-        "content": content,
         "parentPageId": parent_page_id,
+        "subject": title,
+        "body": {
+            "content": content,
+            "mimeType": "text/x-markdown",
+        },
+        "referrers": [],
     }
-    url = f"{base_url}/wiki/v1/projects/{project_id}/pages"
+    url = f"{base_url}/wiki/v1/projects/{project_id}/wiki-pages"
     body_bytes = json.dumps(payload).encode()
     print(f"[INFO] Dooray API URL: {url}")
     print(f"[INFO] project_id: {project_id}")
