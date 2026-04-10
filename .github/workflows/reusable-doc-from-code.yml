@@ -20,7 +20,7 @@ on:
         default: ""
         description: "위키 경로 힌트 (internal/external). 미입력 시 파일 경로에서 자동 감지"
     secrets:
-      GITHUB_TOKEN:
+      ORG_GITHUB_TOKEN:
         required: true
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
@@ -50,13 +50,13 @@ jobs:
         with:
           repository: ${{ inputs.repo_name }}
           ref: ${{ inputs.branch }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.ORG_GITHUB_TOKEN }}
 
       - name: Checkout shared-workflows (스크립트 및 프롬프트 파일용)
         uses: actions/checkout@v4
         with:
           repository: dev-billing/shared-workflows
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.ORG_GITHUB_TOKEN }}
           path: shared-config
 
       - name: Validate Claude CLI
