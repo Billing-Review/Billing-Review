@@ -42,7 +42,6 @@ def classify_wiki_path(url_hint: str) -> str:
 
 def create_dooray_page(
     api_key: str,
-    member_id: str,
     wiki_id: str,
     parent_page_id: str,
     title: str,
@@ -68,7 +67,7 @@ def create_dooray_page(
         url,
         data=body_bytes,
         headers={
-            "Authorization": f"dooray-api {member_id}:{api_key}",
+            "Authorization": f"dooray-api {api_key}",
             "Content-Type": "application/json",
         },
         method="POST",
@@ -84,7 +83,6 @@ def create_dooray_page(
 
 def main():
     api_key = os.environ.get("DOORAY_API_KEY", "")
-    member_id = os.environ.get("DOORAY_MEMBER_ID", "")
     wiki_id = os.environ.get("DOORAY_WIKI_ID", "")
     project_id = os.environ.get("DOORAY_PROJECT_ID", "")
     parent_page_id = os.environ.get("DOORAY_DRAFT_PARENT_PAGE_ID", "")
@@ -95,7 +93,6 @@ def main():
 
     required = {
         "DOORAY_API_KEY": api_key,
-        "DOORAY_MEMBER_ID": member_id,
         "DOORAY_WIKI_ID": wiki_id,
         "DOORAY_PROJECT_ID": project_id,
         "DOORAY_DRAFT_PARENT_PAGE_ID": parent_page_id,
@@ -118,7 +115,7 @@ def main():
 {doc_content}"""
 
     result = create_dooray_page(
-        api_key, member_id, wiki_id, parent_page_id, title, full_content, base_url
+        api_key, wiki_id, parent_page_id, title, full_content, base_url
     )
 
     page_id = result.get("result", {}).get("id", "")

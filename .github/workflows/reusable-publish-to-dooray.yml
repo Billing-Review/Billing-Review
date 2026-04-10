@@ -21,8 +21,6 @@ on:
         required: true
       DOORAY_API_KEY:
         required: true
-      DOORAY_MEMBER_ID:
-        required: true
       DOORAY_WIKI_ID:
         required: true
       DOORAY_PROJECT_ID:
@@ -57,7 +55,6 @@ jobs:
         id: create-page
         env:
           DOORAY_API_KEY: ${{ secrets.DOORAY_API_KEY }}
-          DOORAY_MEMBER_ID: ${{ secrets.DOORAY_MEMBER_ID }}
           DOORAY_WIKI_ID: ${{ secrets.DOORAY_WIKI_ID }}
           DOORAY_PROJECT_ID: ${{ secrets.DOORAY_PROJECT_ID }}
           DOORAY_DRAFT_PARENT_PAGE_ID: ${{ secrets.DOORAY_DRAFT_PARENT_PAGE_ID }}
