@@ -313,11 +313,14 @@ def main():
         elif "external" in combined:
             url_hint = "external"
 
+    api_key = f"{http_method} {api_urls[0]}"
+
     set_output("doc_content", doc_content)
     set_output("title", title)
     set_output("url_hint", url_hint)
+    set_output("api_key", api_key)
 
-    print(f"문서 생성 완료 | 제목: {title} | URL 힌트: {url_hint or '없음'}")
+    print(f"문서 생성 완료 | 제목: {title} | URL 힌트: {url_hint or '없음'} | API Key: {api_key}")
 
 
 if __name__ == "__main__":

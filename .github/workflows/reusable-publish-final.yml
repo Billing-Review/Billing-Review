@@ -1,4 +1,4 @@
-name: Reusable - Publish API Doc to Dooray Wiki (Draft)
+name: Reusable - Publish API Doc Final
 
 on:
   workflow_call:
@@ -21,11 +21,15 @@ on:
         type: string
         default: ""
         description: "레지스트리 키 (예: GET /api/v1/todos)"
-      repo_name:
+      draft_page_id:
         required: false
         type: string
         default: ""
-        description: "서비스 저장소 이름 (org/repo) — draft-registry 커밋용"
+        description: "삭제할 Draft 페이지 ID"
+      repo_name:
+        required: true
+        type: string
+        description: "서비스 저장소 이름 (org/repo)"
     secrets:
       ORG_GITHUB_TOKEN:
         required: true
@@ -35,27 +39,27 @@ on:
         required: true
       DOORAY_PROJECT_ID:
         required: true
-      DOORAY_DRAFT_PARENT_PAGE_ID:
+      DOORAY_INTERNAL_PARENT_PAGE_ID:
+        required: false
+      DOORAY_EXTERNAL_PARENT_PAGE_ID:
+        required: false
+      DOORAY_DEFAULT_PARENT_PAGE_ID:
         required: true
     outputs:
-      draft_page_id:
-        description: "생성된 Dooray Draft 페이지 ID"
-        value: ${{ jobs.publish.outputs.draft_page_id }}
+      page_id:
+        description: "본 페이지 ID"
+        value: ${{ jobs.publish.outputs.page_id }}
       page_url:
-        description: "생성된 Dooray Draft 페이지 URL"
+        description: "본 페이지 URL"
         value: ${{ jobs.publish.outputs.page_url }}
-      api_key:
-        description: "레지스트리 키 (pass-through)"
-        value: ${{ jobs.publish.outputs.api_key }}
 
 jobs:
   publish:
     runs-on:
       group: billing-dev
     outputs:
-      draft_page_id: ${{ steps.create-page.outputs.draft_page_id }}
-      page_url: ${{ steps.create-page.outputs.page_url }}
-      api_key: ${{ steps.create-page.outputs.api_key }}
+      page_id: ${{ steps.publish.outputs.page_id }}
+      page_url: ${{ steps.publish.outputs.page_url }}
 
     steps:
       - name: Checkout shared-workflows (스크립트 파일용)
@@ -65,30 +69,31 @@ jobs:
           token: ${{ secrets.ORG_GITHUB_TOKEN }}
           path: shared-config
 
-      - name: Publish Draft to Dooray Wiki
-        id: create-page
+      - name: Publish Final to Dooray Wiki
+        id: publish
         env:
           DOORAY_API_KEY: ${{ secrets.DOORAY_API_KEY }}
           DOORAY_WIKI_ID: ${{ secrets.DOORAY_WIKI_ID }}
           DOORAY_PROJECT_ID: ${{ secrets.DOORAY_PROJECT_ID }}
-          DOORAY_DRAFT_PARENT_PAGE_ID: ${{ secrets.DOORAY_DRAFT_PARENT_PAGE_ID }}
+          DOORAY_DRAFT_PAGE_ID: ${{ inputs.draft_page_id }}
+          DOORAY_INTERNAL_PARENT_PAGE_ID: ${{ secrets.DOORAY_INTERNAL_PARENT_PAGE_ID }}
+          DOORAY_EXTERNAL_PARENT_PAGE_ID: ${{ secrets.DOORAY_EXTERNAL_PARENT_PAGE_ID }}
+          DOORAY_DEFAULT_PARENT_PAGE_ID: ${{ secrets.DOORAY_DEFAULT_PARENT_PAGE_ID }}
           ORG_GITHUB_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
           TITLE: ${{ inputs.title }}
           DOC_CONTENT: ${{ inputs.doc_content }}
           URL_HINT: ${{ inputs.url_hint }}
           API_KEY: ${{ inputs.api_key }}
           REPO_NAME: ${{ inputs.repo_name }}
-        run: python3 shared-config/scripts/reusable-publish-to-dooray.py
+        run: python3 shared-config/scripts/reusable-publish-final.py
 
       - name: Summary
         run: |
-          echo "## Dooray Draft 페이지 생성 완료" >> "$GITHUB_STEP_SUMMARY"
+          echo "## 본 페이지 반영 완료" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| 항목 | 값 |" >> "$GITHUB_STEP_SUMMARY"
           echo "|------|-----|" >> "$GITHUB_STEP_SUMMARY"
           echo "| 제목 | ${{ inputs.title }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| 분류 | ${{ steps.create-page.outputs.wiki_category }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| API Key | ${{ inputs.api_key }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| 페이지 ID | ${{ steps.create-page.outputs.draft_page_id }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Dooray에서 Draft를 검토한 뒤, 이 워크플로우 실행 화면으로 돌아와 **Approve** 하세요." >> "$GITHUB_STEP_SUMMARY"
+          echo "| 페이지 ID | ${{ steps.publish.outputs.page_id }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Draft 삭제 | ${{ inputs.draft_page_id }} |" >> "$GITHUB_STEP_SUMMARY"

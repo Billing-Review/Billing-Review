@@ -20,6 +20,20 @@ import re
 import subprocess
 import sys
 
+# 클래스 레벨 @RequestMapping prefix 추출
+_CLASS_MAPPING_RE = re.compile(
+    r'@RequestMapping\s*\(\s*(?:value\s*=\s*|path\s*=\s*)?["\']([^"\']+)["\']'
+)
+# 메서드 레벨 @*Mapping (HTTP verb, path) 추출
+_METHOD_MAPPING_RE = re.compile(
+    r'@(Get|Post|Put|Delete|Patch|Request)Mapping'
+    r'(?:'
+    r'\s*\(\s*(?:value\s*=\s*|path\s*=\s*)?["\']([^"\']*)["\']'
+    r'|\s*\(\s*\)'
+    r'|\s*(?!\()'
+    r')'
+)
+
 PROMPT_DIR = "shared-config/write-api-docs"
 SYSTEM_PROMPT_FILE = f"{PROMPT_DIR}/docs-writer.md"
 TEMPLATE_FILE = f"{PROMPT_DIR}/api-docs-template.md"
@@ -66,6 +80,35 @@ def get_pr_metadata(pr_number: str, repo_name: str) -> tuple:
         return "", ""
     data = json.loads(result.stdout)
     return data.get("title", ""), data.get("body", "") or ""
+
+
+def extract_api_key_from_diff(api_diff: str) -> str:
+    """diff에 포함된 Controller 파일에서 첫 번째 변경 endpoint를 'METHOD /path' 형식으로 반환."""
+    file_pattern = re.compile(r"^diff --git a/(.+) b/", re.MULTILINE)
+    ctrl_pattern = re.compile(r"(Controller|Handler|Router)\.(java|kt|go|py|ts|js)$")
+
+    for m in file_pattern.finditer(api_diff):
+        filepath = m.group(1)
+        if not ctrl_pattern.search(filepath):
+            continue
+        if not os.path.exists(filepath):
+            continue
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+
+        class_match = _CLASS_MAPPING_RE.search(content)
+        class_prefix = class_match.group(1).rstrip("/") if class_match else ""
+
+        for mm in _METHOD_MAPPING_RE.finditer(content):
+            verb = mm.group(1).upper()
+            path = mm.group(2) or ""
+            if verb == "REQUEST":
+                verb = "GET"
+            sep = "/" if path and not path.startswith("/") else ""
+            full_path = class_prefix + sep + path
+            if full_path:
+                return f"{verb} {full_path}"
+    return ""
 
 
 def filter_api_diff(full_diff: str) -> str:
@@ -187,11 +230,14 @@ PR 설명: {pr_body}
     elif "external" in api_diff.lower():
         url_hint = "external"
 
+    api_key = extract_api_key_from_diff(api_diff)
+
     set_output("doc_content", doc_content)
     set_output("title", title)
     set_output("url_hint", url_hint)
+    set_output("api_key", api_key)
 
-    print(f"문서 생성 완료 | 제목: {title} | URL 힌트: {url_hint or '없음'}")
+    print(f"문서 생성 완료 | 제목: {title} | URL 힌트: {url_hint or '없음'} | API Key: {api_key or '없음'}")
 
 
 if __name__ == "__main__":

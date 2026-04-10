@@ -32,6 +32,9 @@ on:
       skipped:
         description: "API 변경 없으면 true"
         value: ${{ jobs.generate.outputs.skipped }}
+      api_key:
+        description: "레지스트리 키 (예: GET /api/v1/todos)"
+        value: ${{ jobs.generate.outputs.api_key }}
 
 jobs:
   generate:
@@ -42,6 +45,7 @@ jobs:
       title: ${{ steps.generate-doc.outputs.title }}
       url_hint: ${{ steps.generate-doc.outputs.url_hint }}
       skipped: ${{ steps.generate-doc.outputs.skipped }}
+      api_key: ${{ steps.generate-doc.outputs.api_key }}
 
     steps:
       - name: Checkout calling repo
