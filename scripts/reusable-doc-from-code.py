@@ -7,12 +7,14 @@ REST API URL 경로로 Controller/Handler 파일을 검색하고 Claude CLI로 A
 검색 방식:
   1. @*Mapping 어노테이션이 있는 Controller/Handler/Router 파일 전체 수집
   2. 각 파일에서 클래스 레벨 @RequestMapping(prefix) + 메서드 레벨 @*Mapping(path) 조합
-  3. 입력 URL과 매칭되는 파일만 선택
+  3. 입력 HTTP Method + URL과 정확히 일치하는 파일만 선택
+  4. Controller import에서 DTO/Service/Exception 파일 추가 수집
 
 환경 변수:
   CLAUDE_CODE_OAUTH_TOKEN   Claude CLI 인증 토큰
   REPO_NAME                 저장소 이름 (org/repo)
   BRANCH                    브랜치 이름
+  HTTP_METHOD               HTTP 메서드 (GET, POST, PUT, DELETE, PATCH)
   API_PATHS                 쉼표로 구분된 REST API URL 경로 (예: /api/v1/orders,/api/v1/payments)
   URL_HINT_INPUT            위키 경로 힌트 (internal/external, 선택)
   CLAUDE_MODEL              사용할 Claude 모델 (기본값: claude-sonnet-4-20250514)
@@ -38,15 +40,23 @@ CLASS_MAPPING_PATTERN = re.compile(
     r'@RequestMapping\s*\(\s*(?:value\s*=\s*|path\s*=\s*)?["\']([^"\']+)["\']'
 )
 
-# 메서드 레벨 @*Mapping에서 경로 추출
-# @GetMapping("/path"), @PostMapping(value="/path"), @RequestMapping(path="/path"), @GetMapping (경로 없음)
+# 메서드 레벨 @*Mapping에서 (HTTP 메서드, 경로) 추출
+# @GetMapping("/path"), @PostMapping(value="/path"), @RequestMapping(path="/path"), @GetMapping
 METHOD_MAPPING_PATTERN = re.compile(
-    r'@(?:Get|Post|Put|Delete|Patch|Request)Mapping'
+    r'@(Get|Post|Put|Delete|Patch|Request)Mapping'
     r'(?:'
     r'\s*\(\s*(?:value\s*=\s*|path\s*=\s*)?["\']([^"\']*)["\']'  # ("path") or (value="path")
     r'|\s*\(\s*\)'                                                  # ()
     r'|\s*(?!\()'                                                   # 괄호 없음
     r')'
+)
+
+# 외부 라이브러리 import 제외 prefix
+EXTERNAL_IMPORT_PREFIXES = (
+    "java.", "javax.", "jakarta.",
+    "org.springframework.", "org.slf4j.", "org.junit.", "org.mockito.",
+    "lombok.", "com.fasterxml.", "io.swagger.", "io.micrometer.",
+    "reactor.", "kotlin.", "kotlinx.",
 )
 
 
@@ -63,42 +73,37 @@ def set_output(name: str, value: str):
             f.write(f"{name}={value}\n")
 
 
-def extract_mapping_paths(content: str) -> tuple:
-    """파일에서 클래스 레벨 prefix와 메서드 레벨 경로 목록을 추출한다."""
-    # 클래스 레벨 prefix
+def extract_method_mappings(content: str) -> list:
+    """파일에서 (HTTP 메서드, 결합 경로) 목록을 반환한다."""
     class_match = CLASS_MAPPING_PATTERN.search(content)
     class_prefix = class_match.group(1).rstrip("/") if class_match else ""
 
-    # 메서드 레벨 경로들
-    method_paths = []
+    results = []
     for m in METHOD_MAPPING_PATTERN.finditer(content):
-        path = m.group(1) or ""  # 경로 없는 경우 빈 문자열
-        method_paths.append(path)
+        verb = m.group(1).upper()  # Get → GET, Request → REQUEST
+        path = m.group(2) or ""
+        sep = "/" if path and not path.startswith("/") else ""
+        combined = class_prefix + sep + path
+        results.append((verb, combined))
 
-    return class_prefix, method_paths
+    return results
 
 
 def normalize_url(url: str) -> str:
-    """path variable({id}, {orderId})을 * 로 치환하고 앞뒤 슬래시 정리."""
+    """path variable({id})을 * 로 치환하고 앞뒤 슬래시 정리."""
     url = re.sub(r"\{[^}]+\}", "*", url)
     return "/" + url.strip("/")
 
 
-def url_matches(input_url: str, combined_url: str) -> bool:
-    """입력 URL이 Controller의 결합 URL과 매칭되는지 확인한다."""
-    input_norm = normalize_url(input_url)
-    combined_norm = normalize_url(combined_url)
-    # 입력 URL이 combined의 prefix이거나, combined이 입력의 prefix이거나, 정확히 일치
-    return (
-        combined_norm == input_norm
-        or combined_norm.startswith(input_norm + "/")
-        or input_norm.startswith(combined_norm + "/")
-        or input_norm.startswith(combined_norm.replace("*", ""))
-    )
+def http_method_matches(input_method: str, mapping_verb: str) -> bool:
+    """입력 HTTP 메서드가 어노테이션 verb와 일치하는지 확인한다."""
+    if mapping_verb == "REQUEST":
+        return True  # @RequestMapping은 모든 메서드 허용
+    return input_method.upper() == mapping_verb
 
 
-def find_controller_files(api_urls: list) -> list:
-    """@*Mapping 어노테이션을 파싱하여 API URL을 처리하는 Controller 파일을 찾는다."""
+def find_controller_files(api_urls: list, http_method: str) -> list:
+    """HTTP Method + URL이 정확히 일치하는 Controller 파일을 찾는다."""
 
     # 1. @*Mapping이 있는 Controller/Handler/Router 파일 전체 수집
     result = subprocess.run(
@@ -118,7 +123,7 @@ def find_controller_files(api_urls: list) -> list:
 
     print(f"[INFO] Controller 후보 파일 {len(candidate_files)}개 발견")
 
-    # 2. 각 파일의 Mapping 경로를 조합하여 입력 URL과 매칭
+    # 2. HTTP Method + 정확한 경로 일치
     found = set()
     for filepath in candidate_files:
         try:
@@ -127,39 +132,72 @@ def find_controller_files(api_urls: list) -> list:
         except OSError:
             continue
 
-        class_prefix, method_paths = extract_mapping_paths(content)
+        mappings = extract_method_mappings(content)
 
         for input_url in api_urls:
-            for method_path in method_paths:
-                sep = "/" if method_path and not method_path.startswith("/") else ""
-                combined = class_prefix + sep + method_path
-
-                if url_matches(input_url, combined):
-                    clean_path = filepath.lstrip("./")
-                    found.add(clean_path)
-                    print(f"  ✓ 매칭: {clean_path}")
-                    print(f"    └ {class_prefix or '(prefix 없음)'} + {method_path or '(경로 없음)'} → {combined}")
-                    break
+            input_norm = normalize_url(input_url)
+            for verb, combined_path in mappings:
+                if not http_method_matches(http_method, verb):
+                    continue
+                if normalize_url(combined_path) != input_norm:
+                    continue
+                clean_path = filepath.lstrip("./")
+                found.add(clean_path)
+                print(f"  ✓ 매칭: {clean_path}")
+                print(f"    └ [{verb}] {combined_path}")
+                break
 
     return sorted(found)
 
 
-def read_controller_files(file_paths: list) -> str:
+def find_related_files(controller_paths: list) -> list:
+    """Controller import에서 DTO/Service/Exception 파일을 탐색한다."""
+    import_pattern = re.compile(r'import\s+([\w.]+);')
+    related = []
+    seen = set(controller_paths)
+
+    for ctrl_path in controller_paths:
+        full_path = ctrl_path if os.path.exists(ctrl_path) else f"./{ctrl_path}"
+        try:
+            with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+        except OSError:
+            continue
+
+        for imp in import_pattern.findall(content):
+            if any(imp.startswith(p) for p in EXTERNAL_IMPORT_PREFIXES):
+                continue
+            # 클래스 경로 → 파일 경로
+            file_path = "src/main/java/" + imp.replace(".", "/") + ".java"
+            if file_path in seen:
+                continue
+            if os.path.exists(file_path):
+                seen.add(file_path)
+                related.append(file_path)
+                print(f"  + 관련 파일: {file_path}")
+
+    return related
+
+
+def read_source_files(controller_paths: list, related_paths: list) -> str:
     collected = []
-    for path in file_paths:
+    all_paths = [(p, "Controller") for p in controller_paths] + \
+                [(p, "참조") for p in related_paths]
+
+    for path, label in all_paths:
         full_path = path if os.path.exists(path) else f"./{path}"
         if os.path.exists(full_path):
             with open(full_path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
-            collected.append(f"### {path}\n```\n{content[:MAX_FILE_CHARS]}\n```")
+            collected.append(f"### [{label}] {path}\n```java\n{content[:MAX_FILE_CHARS]}\n```")
         else:
             print(f"::warning::파일 없음: {path}")
 
     if not collected:
-        print("::error::읽을 수 있는 Controller 파일이 없습니다.", file=sys.stderr)
+        print("::error::읽을 수 있는 소스 파일이 없습니다.", file=sys.stderr)
         sys.exit(1)
 
-    print(f"{len(collected)}개 파일 읽기 완료")
+    print(f"총 {len(collected)}개 파일 읽기 완료 (Controller {len(controller_paths)}개 + 참조 {len(related_paths)}개)")
     return "\n\n".join(collected)
 
 
@@ -178,7 +216,7 @@ def call_claude(prompt: str) -> str:
 
     try:
         result = subprocess.run(
-            ["claude", "-p", prompt, "--model", CLAUDE_MODEL],
+            ["claude", "-p", prompt, "--model", CLAUDE_MODEL, "--output-format", "text"],
             capture_output=True,
             check=True,
             timeout=CLAUDE_TIMEOUT,
@@ -208,29 +246,37 @@ def call_claude(prompt: str) -> str:
 def main():
     repo_name = os.environ.get("REPO_NAME", "")
     branch = os.environ.get("BRANCH", "")
+    http_method = os.environ.get("HTTP_METHOD", "").strip().upper()
     api_paths_str = os.environ.get("API_PATHS", "")
     url_hint_input = os.environ.get("URL_HINT_INPUT", "")
 
+    if not http_method:
+        print("HTTP_METHOD 환경 변수가 필요합니다. (GET/POST/PUT/DELETE/PATCH)", file=sys.stderr)
+        sys.exit(1)
     if not api_paths_str:
         print("API_PATHS 환경 변수가 필요합니다.", file=sys.stderr)
         sys.exit(1)
 
     api_urls = [p.strip() for p in api_paths_str.split(",") if p.strip()]
-    print(f"검색할 API URL: {api_urls}")
+    print(f"검색할 API: [{http_method}] {api_urls}")
 
-    # 1. URL로 Controller 파일 검색
-    controller_files = find_controller_files(api_urls)
+    # 1. Controller 파일 검색 (HTTP Method + 정확한 경로 일치)
+    controller_files = find_controller_files(api_urls, http_method)
 
     if not controller_files:
-        print("::error::해당 API URL을 처리하는 Controller 파일을 찾을 수 없습니다.", file=sys.stderr)
+        print("::error::해당 API를 처리하는 Controller 파일을 찾을 수 없습니다.", file=sys.stderr)
         sys.exit(1)
 
     print(f"발견된 Controller 파일: {controller_files}")
 
-    # 2. 파일 내용 읽기
-    code_content = read_controller_files(controller_files)
+    # 2. 관련 파일 탐색 (DTO, Service, Exception 등)
+    print("[INFO] 관련 파일 탐색 중...")
+    related_files = find_related_files(controller_files)
 
-    # 3. 프롬프트 파일 읽기
+    # 3. 파일 내용 읽기
+    code_content = read_source_files(controller_files, related_files)
+
+    # 4. 프롬프트 파일 읽기
     with open(SYSTEM_PROMPT_FILE, "r") as f:
         system_prompt = f.read()
     with open(TEMPLATE_FILE, "r") as f:
@@ -238,9 +284,9 @@ def main():
 
     prompt = f"""{system_prompt}
 
-다음은 {repo_name} 레포지토리 {branch} 브랜치에서 아래 API URL을 처리하는 코드입니다.
+다음은 {repo_name} 레포지토리 {branch} 브랜치에서 아래 API를 처리하는 코드입니다.
 
-대상 API URL: {', '.join(api_urls)}
+대상 API: [{http_method}] {', '.join(api_urls)}
 
 {code_content}
 
@@ -249,15 +295,15 @@ def main():
 {template}
 """
 
-    # 4. Claude CLI로 문서 생성
+    # 5. Claude CLI로 문서 생성
     doc_content = call_claude(prompt)
 
-    # 5. 결과 출력 — 첫 번째 URL에서 그룹명 추출 (/api/v1/orders → Orders)
+    # 6. 결과 출력 — 첫 번째 URL에서 그룹명 추출 (/api/v1/orders → Orders)
     first_url = api_urls[0]
     segments = [s for s in first_url.strip("/").split("/")
                 if s and not re.match(r"^(api|v\d+(\.\d+)?)$", s)]
     group_name = segments[0].capitalize() if segments else "API"
-    title = f"[API Draft] {group_name} API 명세"
+    title = f"[API Draft] {http_method} {group_name} API 명세"
 
     url_hint = url_hint_input
     if not url_hint:

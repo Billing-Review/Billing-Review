@@ -10,6 +10,10 @@ on:
         required: true
         type: string
         description: "코드를 읽을 브랜치"
+      http_method:
+        required: true
+        type: string
+        description: "HTTP 메서드 (GET, POST, PUT, DELETE, PATCH)"
       api_paths:
         required: true
         type: string
@@ -73,6 +77,7 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           REPO_NAME: ${{ inputs.repo_name }}
           BRANCH: ${{ inputs.branch }}
+          HTTP_METHOD: ${{ inputs.http_method }}
           API_PATHS: ${{ inputs.api_paths }}
           URL_HINT_INPUT: ${{ inputs.url_hint }}
         run: python3 shared-config/scripts/reusable-doc-from-code.py

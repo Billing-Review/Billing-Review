@@ -5,8 +5,7 @@ reusable-publish-to-dooray.py
 생성된 API 문서를 Dooray 위키 Draft 페이지에 게시합니다.
 
 환경 변수:
-  DOORAY_API_KEY              Dooray API 키
-  DOORAY_MEMBER_ID            Dooray 멤버 ID
+  DOORAY_API_KEY            Dooray API 토큰 (appId:token 형식)
   DOORAY_PROJECT_ID           Dooray 프로젝트 ID
   DOORAY_DRAFT_PARENT_PAGE_ID Draft 페이지의 부모 페이지 ID
   TITLE                       위키 페이지 제목
