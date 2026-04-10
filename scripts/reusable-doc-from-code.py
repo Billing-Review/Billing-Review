@@ -4,6 +4,11 @@ reusable-doc-from-code.py
 
 REST API URL 경로로 Controller/Handler 파일을 검색하고 Claude CLI로 API 문서를 생성합니다.
 
+검색 방식:
+  1. @*Mapping 어노테이션이 있는 Controller/Handler/Router 파일 전체 수집
+  2. 각 파일에서 클래스 레벨 @RequestMapping(prefix) + 메서드 레벨 @*Mapping(path) 조합
+  3. 입력 URL과 매칭되는 파일만 선택
+
 환경 변수:
   CLAUDE_CODE_OAUTH_TOKEN   Claude CLI 인증 토큰
   REPO_NAME                 저장소 이름 (org/repo)
@@ -28,6 +33,22 @@ CLAUDE_TIMEOUT = int(os.environ.get("CLAUDE_TIMEOUT", "120"))
 MAX_FILE_CHARS = 8000
 CONTROLLER_PATTERN = re.compile(r"(Controller|Handler|Router)\.(java|kt|go|py|ts|js)$")
 
+# 클래스 레벨 @RequestMapping에서 prefix 추출
+CLASS_MAPPING_PATTERN = re.compile(
+    r'@RequestMapping\s*\(\s*(?:value\s*=\s*|path\s*=\s*)?["\']([^"\']+)["\']'
+)
+
+# 메서드 레벨 @*Mapping에서 경로 추출
+# @GetMapping("/path"), @PostMapping(value="/path"), @RequestMapping(path="/path"), @GetMapping (경로 없음)
+METHOD_MAPPING_PATTERN = re.compile(
+    r'@(?:Get|Post|Put|Delete|Patch|Request)Mapping'
+    r'(?:'
+    r'\s*\(\s*(?:value\s*=\s*|path\s*=\s*)?["\']([^"\']*)["\']'  # ("path") or (value="path")
+    r'|\s*\(\s*\)'                                                  # ()
+    r'|\s*(?!\()'                                                   # 괄호 없음
+    r')'
+)
+
 
 def set_output(name: str, value: str):
     output_file = os.environ.get("GITHUB_OUTPUT", "")
@@ -42,42 +63,83 @@ def set_output(name: str, value: str):
             f.write(f"{name}={value}\n")
 
 
+def extract_mapping_paths(content: str) -> tuple:
+    """파일에서 클래스 레벨 prefix와 메서드 레벨 경로 목록을 추출한다."""
+    # 클래스 레벨 prefix
+    class_match = CLASS_MAPPING_PATTERN.search(content)
+    class_prefix = class_match.group(1).rstrip("/") if class_match else ""
+
+    # 메서드 레벨 경로들
+    method_paths = []
+    for m in METHOD_MAPPING_PATTERN.finditer(content):
+        path = m.group(1) or ""  # 경로 없는 경우 빈 문자열
+        method_paths.append(path)
+
+    return class_prefix, method_paths
+
+
+def normalize_url(url: str) -> str:
+    """path variable({id}, {orderId})을 * 로 치환하고 앞뒤 슬래시 정리."""
+    url = re.sub(r"\{[^}]+\}", "*", url)
+    return "/" + url.strip("/")
+
+
+def url_matches(input_url: str, combined_url: str) -> bool:
+    """입력 URL이 Controller의 결합 URL과 매칭되는지 확인한다."""
+    input_norm = normalize_url(input_url)
+    combined_norm = normalize_url(combined_url)
+    # 입력 URL이 combined의 prefix이거나, combined이 입력의 prefix이거나, 정확히 일치
+    return (
+        combined_norm == input_norm
+        or combined_norm.startswith(input_norm + "/")
+        or input_norm.startswith(combined_norm + "/")
+        or input_norm.startswith(combined_norm.replace("*", ""))
+    )
+
+
 def find_controller_files(api_urls: list) -> list:
-    """API URL 경로를 포함하는 Controller/Handler/Router 파일을 검색한다."""
+    """@*Mapping 어노테이션을 파싱하여 API URL을 처리하는 Controller 파일을 찾는다."""
+
+    # 1. @*Mapping이 있는 Controller/Handler/Router 파일 전체 수집
+    result = subprocess.run(
+        ["grep", "-rl", "@.*Mapping",
+         "--include=*.java", "--include=*.kt",
+         "--include=*.go", "--include=*.py", "--include=*.ts", "--include=*.js", "."],
+        capture_output=True, text=True,
+    )
+    candidate_files = [
+        f for f in result.stdout.strip().splitlines()
+        if CONTROLLER_PATTERN.search(f)
+    ]
+
+    if not candidate_files:
+        print("[WARN] @*Mapping을 포함하는 Controller/Handler/Router 파일이 없습니다.")
+        return []
+
+    print(f"[INFO] Controller 후보 파일 {len(candidate_files)}개 발견")
+
+    # 2. 각 파일의 Mapping 경로를 조합하여 입력 URL과 매칭
     found = set()
+    for filepath in candidate_files:
+        try:
+            with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+        except OSError:
+            continue
 
-    for url in api_urls:
-        # URL에서 검색 키워드 추출: /api/v1/orders → orders, order 등
-        # 경로 세그먼트 중 버전(v1, v2...)과 공통 prefix(api) 제외
-        segments = [
-            s for s in url.strip("/").split("/")
-            if s and not re.match(r"^(api|v\d+(\.\d+)?)$", s)
-        ]
+        class_prefix, method_paths = extract_mapping_paths(content)
 
-        # 1차: 파일 내에서 URL 문자열 직접 검색
-        result = subprocess.run(
-            ["grep", "-rl", url, "--include=*.java", "--include=*.kt",
-             "--include=*.go", "--include=*.py", "--include=*.ts", "--include=*.js", "."],
-            capture_output=True, text=True,
-        )
-        for f in result.stdout.strip().splitlines():
-            if CONTROLLER_PATTERN.search(f):
-                found.add(f.lstrip("./"))
+        for input_url in api_urls:
+            for method_path in method_paths:
+                sep = "/" if method_path and not method_path.startswith("/") else ""
+                combined = class_prefix + sep + method_path
 
-        # 2차: URL 직접 검색 결과 없으면 세그먼트 키워드로 Controller 파일명 검색
-        if not any(url in open(f).read() for f in [f"./{p}" for p in found] if os.path.exists(f"./{p}")):
-            for segment in segments:
-                result = subprocess.run(
-                    ["find", ".", "-type", "f",
-                     "-iname", f"*{segment}*",
-                     "-name", "*Controller*", "-o",
-                     "-type", "f", "-iname", f"*{segment}*", "-name", "*Handler*", "-o",
-                     "-type", "f", "-iname", f"*{segment}*", "-name", "*Router*"],
-                    capture_output=True, text=True,
-                )
-                for f in result.stdout.strip().splitlines():
-                    if CONTROLLER_PATTERN.search(f):
-                        found.add(f.lstrip("./"))
+                if url_matches(input_url, combined):
+                    clean_path = filepath.lstrip("./")
+                    found.add(clean_path)
+                    print(f"  ✓ 매칭: {clean_path}")
+                    print(f"    └ {class_prefix or '(prefix 없음)'} + {method_path or '(경로 없음)'} → {combined}")
+                    break
 
     return sorted(found)
 
@@ -188,8 +250,7 @@ def main():
     # 4. Claude CLI로 문서 생성
     doc_content = call_claude(prompt)
 
-    # 5. 결과 출력
-    # 첫 번째 URL 세그먼트에서 그룹명 추출 (예: /api/v1/orders → orders)
+    # 5. 결과 출력 — 첫 번째 URL에서 그룹명 추출 (/api/v1/orders → Orders)
     first_url = api_urls[0]
     segments = [s for s in first_url.strip("/").split("/")
                 if s and not re.match(r"^(api|v\d+(\.\d+)?)$", s)]
