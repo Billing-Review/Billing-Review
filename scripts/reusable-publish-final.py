@@ -182,6 +182,29 @@ def get_target_parent(url_hint: str) -> str:
     return parent
 
 
+def get_child_pages(api_key: str, wiki_id: str, parent_page_id: str, base_url: str) -> list:
+    url = f"{base_url}/wiki/v1/wikis/{wiki_id}/pages/{parent_page_id}/children"
+    try:
+        result = dooray_request("GET", url, api_key)
+        return result.get("result", [])
+    except SystemExit:
+        return []
+
+
+def get_or_create_repo_page(api_key: str, wiki_id: str, category_parent_id: str,
+                            repo_short_name: str, base_url: str) -> str:
+    children = get_child_pages(api_key, wiki_id, category_parent_id, base_url)
+    for child in children:
+        if child.get("subject", "") == repo_short_name:
+            page_id = child.get("id", "")
+            print(f"[INFO] 레포 페이지 기존 사용: {repo_short_name} (id={page_id})")
+            return page_id
+
+    print(f"[INFO] 레포 페이지 신규 생성: {repo_short_name}")
+    page_id = create_dooray_page(api_key, wiki_id, category_parent_id, repo_short_name, "", base_url)
+    return page_id
+
+
 def main():
     dooray_api_key = os.environ.get("DOORAY_API_KEY", "")
     wiki_id = os.environ.get("DOORAY_WIKI_ID", "")
@@ -227,15 +250,19 @@ def main():
     draft_title, doc_content = get_dooray_page(dooray_api_key, wiki_id, draft_page_id, base_url)
     publish_title = draft_title.replace("[API Draft] ", "").replace("[API Draft]", "").strip()
 
-    # 기존 페이지 있으면 업데이트, 없으면 생성
+    # repo_name에서 짧은 레포명 추출 (예: dev-billing/todo-service → todo-service)
+    repo_short_name = repo_name.split("/")[-1]
+
+    # 기존 페이지 있으면 업데이트, 없으면 레포 하위에 생성
     existing_page_id = main_registry.get(repo_name, {}).get(registry_key)
     if existing_page_id:
         update_dooray_page(dooray_api_key, wiki_id, existing_page_id, publish_title, doc_content, base_url)
         final_page_id = existing_page_id
         action = "updated"
     else:
-        target_parent = get_target_parent(url_hint)
-        final_page_id = create_dooray_page(dooray_api_key, wiki_id, target_parent, publish_title, doc_content, base_url)
+        category_parent = get_target_parent(url_hint)
+        repo_page_id = get_or_create_repo_page(dooray_api_key, wiki_id, category_parent, repo_short_name, base_url)
+        final_page_id = create_dooray_page(dooray_api_key, wiki_id, repo_page_id, publish_title, doc_content, base_url)
         action = "created"
 
     if not final_page_id:
