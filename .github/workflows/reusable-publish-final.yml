@@ -3,29 +3,10 @@ name: Reusable - Publish API Doc Final
 on:
   workflow_call:
     inputs:
-      title:
-        required: true
-        type: string
-        description: "위키 페이지 제목"
-      doc_content:
-        required: true
-        type: string
-        description: "마크다운 문서 본문"
-      url_hint:
-        required: false
-        type: string
-        default: ""
-        description: "위키 경로 분류 힌트 (internal/external/'')"
       api_key:
-        required: false
+        required: true
         type: string
-        default: ""
         description: "레지스트리 키 (예: GET /api/v1/todos)"
-      draft_page_id:
-        required: false
-        type: string
-        default: ""
-        description: "삭제할 Draft 페이지 ID"
       repo_name:
         required: true
         type: string
@@ -78,14 +59,10 @@ jobs:
           DOORAY_API_KEY: ${{ secrets.DOORAY_API_KEY }}
           DOORAY_WIKI_ID: ${{ secrets.DOORAY_WIKI_ID }}
           DOORAY_PROJECT_ID: ${{ secrets.DOORAY_PROJECT_ID }}
-          DOORAY_DRAFT_PAGE_ID: ${{ inputs.draft_page_id }}
           DOORAY_INTERNAL_PARENT_PAGE_ID: ${{ secrets.DOORAY_INTERNAL_PARENT_PAGE_ID }}
           DOORAY_EXTERNAL_PARENT_PAGE_ID: ${{ secrets.DOORAY_EXTERNAL_PARENT_PAGE_ID }}
           DOORAY_DEFAULT_PARENT_PAGE_ID: ${{ secrets.DOORAY_DEFAULT_PARENT_PAGE_ID }}
           ORG_GITHUB_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
-          TITLE: ${{ inputs.title }}
-          DOC_CONTENT: ${{ inputs.doc_content }}
-          URL_HINT: ${{ inputs.url_hint }}
           API_KEY: ${{ inputs.api_key }}
           REPO_NAME: ${{ inputs.repo_name }}
         run: python3 shared-config/scripts/reusable-publish-final.py
@@ -100,7 +77,6 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| 항목 | 값 |" >> "$GITHUB_STEP_SUMMARY"
           echo "|------|-----|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| 제목 | ${{ inputs.title }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| repo | ${{ inputs.repo_name }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| API Key | ${{ inputs.api_key }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| 페이지 ID | ${{ steps.publish.outputs.page_id }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Draft 삭제 | ${{ inputs.draft_page_id }} |" >> "$GITHUB_STEP_SUMMARY"

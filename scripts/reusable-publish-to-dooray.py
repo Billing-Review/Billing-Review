@@ -3,7 +3,7 @@
 reusable-publish-to-dooray.py
 
 생성된 API 문서를 Dooray 위키 Draft 페이지에 게시하고,
-서비스 repo의 draft-registry를 업데이트합니다.
+rest-api-docs repo의 draft-registry를 업데이트합니다.
 
 환경 변수:
   DOORAY_API_KEY              Dooray API 토큰 (appId:token 형식)
@@ -14,8 +14,7 @@ reusable-publish-to-dooray.py
   DOC_CONTENT                 마크다운 문서 본문
   URL_HINT                    위키 경로 분류 힌트 (internal/external/'')
   API_KEY                     레지스트리 키 (예: GET /api/v1/todos)
-  REPO_NAME                   서비스 저장소 이름 (org/repo), registry 커밋용
-  ORG_GITHUB_TOKEN            GitHub 인증 토큰 (서비스 repo push용)
+  ORG_GITHUB_TOKEN            GitHub 인증 토큰 (rest-api-docs repo push용)
   GITHUB_OUTPUT               GitHub Actions 출력 파일 경로
 """
 
@@ -28,8 +27,9 @@ import urllib.error
 import urllib.request
 from datetime import timezone
 
-DRAFT_REGISTRY_PATH = ".github/api-docs-draft-registry.json"
-SERVICE_REPO_DIR = "service-repo"
+DOCS_REPO = "dev-billing/rest-api-docs"
+DOCS_REPO_DIR = "rest-api-docs"
+DRAFT_REGISTRY_PATH = "registry/api-docs-draft-registry.json"
 
 
 def set_output(name: str, value: str):
@@ -129,19 +129,19 @@ def git_commit_and_push(repo_dir: str, files: list, message: str):
         print("[INFO] registry 커밋 완료")
 
 
-def checkout_service_repo(repo_name: str, token: str):
-    if os.path.exists(SERVICE_REPO_DIR):
+def checkout_docs_repo(token: str):
+    if os.path.exists(DOCS_REPO_DIR):
         import shutil
-        shutil.rmtree(SERVICE_REPO_DIR)
-    url = f"https://x-access-token:{token}@github.com/{repo_name}.git"
+        shutil.rmtree(DOCS_REPO_DIR)
+    url = f"https://x-access-token:{token}@github.com/{DOCS_REPO}.git"
     result = subprocess.run(
-        ["git", "clone", "--depth=1", url, SERVICE_REPO_DIR],
+        ["git", "clone", "--depth=1", url, DOCS_REPO_DIR],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
-        print(f"[WARN] 서비스 repo checkout 실패: {result.stderr}")
+        print(f"[WARN] rest-api-docs repo checkout 실패: {result.stderr}")
         return False
-    print(f"[INFO] 서비스 repo checkout 완료: {repo_name}")
+    print(f"[INFO] rest-api-docs repo checkout 완료")
     return True
 
 
@@ -180,19 +180,20 @@ def main():
 
 {doc_content}"""
 
-    # 서비스 repo checkout (registry 업데이트용)
+    # rest-api-docs repo checkout (registry 업데이트용)
     registry_available = False
-    if repo_name and github_token:
-        registry_available = checkout_service_repo(repo_name, github_token)
+    if github_token:
+        registry_available = checkout_docs_repo(github_token)
 
     # draft-registry에서 기존 draft 확인 → 있으면 먼저 삭제
-    draft_registry_file = os.path.join(SERVICE_REPO_DIR, DRAFT_REGISTRY_PATH)
+    draft_registry_file = os.path.join(DOCS_REPO_DIR, DRAFT_REGISTRY_PATH)
     draft_registry = {}
     if registry_available:
         draft_registry = read_registry(draft_registry_file)
-        if registry_key and registry_key in draft_registry:
-            old_draft_id = draft_registry[registry_key]
-            delete_dooray_page(api_key, wiki_id, old_draft_id, base_url)
+        if registry_key and repo_name:
+            existing = draft_registry.get(repo_name, {}).get(registry_key)
+            if existing:
+                delete_dooray_page(api_key, wiki_id, existing["page_id"], base_url)
 
     # 새 Draft 페이지 생성
     result = create_dooray_page(api_key, wiki_id, parent_page_id, title, full_content, base_url)
@@ -200,11 +201,13 @@ def main():
     page_url = f"{base_url}/wiki/{project_id}/{page_id}"
 
     # draft-registry 업데이트
-    if registry_available and registry_key and page_id:
-        draft_registry[registry_key] = page_id
+    if registry_available and registry_key and repo_name and page_id:
+        if repo_name not in draft_registry:
+            draft_registry[repo_name] = {}
+        draft_registry[repo_name][registry_key] = {"page_id": page_id, "url_hint": url_hint}
         write_registry(draft_registry_file, draft_registry)
         git_commit_and_push(
-            SERVICE_REPO_DIR,
+            DOCS_REPO_DIR,
             [DRAFT_REGISTRY_PATH],
             f"chore: update draft registry - {registry_key} [skip ci]",
         )

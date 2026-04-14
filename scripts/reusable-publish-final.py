@@ -5,26 +5,22 @@ reusable-publish-final.py
 Draft 페이지를 검토 후 본 API 문서 위키에 반영합니다.
 
 동작:
-  1. 서비스 repo에서 main-registry 조회
-     - api_key가 있으면 → 기존 페이지 내용 업데이트
-     - 없으면 → url_hint 기반 parent 하위에 새 페이지 생성
-  2. main-registry 추가/갱신 + draft-registry에서 제거 후 커밋
-  3. Dooray Draft 페이지 삭제
+  1. rest-api-docs repo의 draft-registry에서 api_key + repo_name으로 draft_page_id, url_hint 조회
+  2. Dooray에서 draft 페이지 내용(제목, 본문) fetch
+  3. main-registry 조회 → 기존 페이지 있으면 업데이트, 없으면 신규 생성
+  4. main-registry 갱신 + draft-registry에서 제거 후 커밋
+  5. Dooray Draft 페이지 삭제
 
 환경 변수:
   DOORAY_API_KEY                  Dooray API 토큰
   DOORAY_WIKI_ID                  Dooray 위키 ID
   DOORAY_PROJECT_ID               Dooray 프로젝트 ID
-  DOORAY_DRAFT_PAGE_ID            삭제할 Draft 페이지 ID
   DOORAY_INTERNAL_PARENT_PAGE_ID  사내 API 위키 부모 페이지 ID
   DOORAY_EXTERNAL_PARENT_PAGE_ID  사외 API 위키 부모 페이지 ID
   DOORAY_DEFAULT_PARENT_PAGE_ID   기본 위키 부모 페이지 ID
-  TITLE                           위키 페이지 제목
-  DOC_CONTENT                     마크다운 문서 본문
-  URL_HINT                        위키 경로 분류 힌트
   API_KEY                         레지스트리 키 (예: GET /api/v1/todos)
   REPO_NAME                       서비스 저장소 이름 (org/repo)
-  ORG_GITHUB_TOKEN                GitHub 인증 토큰
+  ORG_GITHUB_TOKEN                GitHub 인증 토큰 (rest-api-docs repo push용)
   GITHUB_OUTPUT                   GitHub Actions 출력 파일 경로
 """
 
@@ -35,9 +31,10 @@ import sys
 import urllib.error
 import urllib.request
 
-MAIN_REGISTRY_PATH = ".github/api-docs-registry.json"
-DRAFT_REGISTRY_PATH = ".github/api-docs-draft-registry.json"
-SERVICE_REPO_DIR = "service-repo"
+DOCS_REPO = "dev-billing/rest-api-docs"
+DOCS_REPO_DIR = "rest-api-docs"
+MAIN_REGISTRY_PATH = "registry/api-docs-registry.json"
+DRAFT_REGISTRY_PATH = "registry/api-docs-draft-registry.json"
 
 
 def set_output(name: str, value: str):
@@ -67,6 +64,15 @@ def dooray_request(method: str, url: str, api_key: str, payload: dict = None) ->
         body = e.read().decode()
         print(f"Dooray API 오류 [{method} {url}]: {e.code}\n{body}", file=sys.stderr)
         sys.exit(1)
+
+
+def get_dooray_page(api_key: str, wiki_id: str, page_id: str, base_url: str):
+    url = f"{base_url}/wiki/v1/wikis/{wiki_id}/pages/{page_id}"
+    result = dooray_request("GET", url, api_key)
+    result_data = result.get("result", {})
+    title = result_data.get("subject", "")
+    content = result_data.get("body", {}).get("content", "")
+    return title, content
 
 
 def create_dooray_page(api_key: str, wiki_id: str, parent_page_id: str,
@@ -143,19 +149,19 @@ def git_commit_and_push(repo_dir: str, files: list, message: str):
         print("[INFO] registry 커밋 완료")
 
 
-def checkout_service_repo(repo_name: str, token: str) -> bool:
-    if os.path.exists(SERVICE_REPO_DIR):
+def checkout_docs_repo(token: str) -> bool:
+    if os.path.exists(DOCS_REPO_DIR):
         import shutil
-        shutil.rmtree(SERVICE_REPO_DIR)
-    url = f"https://x-access-token:{token}@github.com/{repo_name}.git"
+        shutil.rmtree(DOCS_REPO_DIR)
+    url = f"https://x-access-token:{token}@github.com/{DOCS_REPO}.git"
     result = subprocess.run(
-        ["git", "clone", "--depth=1", url, SERVICE_REPO_DIR],
+        ["git", "clone", "--depth=1", url, DOCS_REPO_DIR],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
-        print(f"[ERROR] 서비스 repo checkout 실패: {result.stderr}", file=sys.stderr)
+        print(f"[ERROR] rest-api-docs repo checkout 실패: {result.stderr}", file=sys.stderr)
         return False
-    print(f"[INFO] 서비스 repo checkout 완료: {repo_name}")
+    print(f"[INFO] rest-api-docs repo checkout 완료")
     return True
 
 
@@ -180,11 +186,7 @@ def main():
     dooray_api_key = os.environ.get("DOORAY_API_KEY", "")
     wiki_id = os.environ.get("DOORAY_WIKI_ID", "")
     project_id = os.environ.get("DOORAY_PROJECT_ID", "")
-    draft_page_id = os.environ.get("DOORAY_DRAFT_PAGE_ID", "")
     base_url = os.environ.get("DOORAY_BASE_URL", "https://api.dooray.com")
-    title = os.environ.get("TITLE", "")
-    doc_content = os.environ.get("DOC_CONTENT", "")
-    url_hint = os.environ.get("URL_HINT", "")
     registry_key = os.environ.get("API_KEY", "")
     repo_name = os.environ.get("REPO_NAME", "")
     github_token = os.environ.get("ORG_GITHUB_TOKEN", "")
@@ -193,8 +195,7 @@ def main():
         "DOORAY_API_KEY": dooray_api_key,
         "DOORAY_WIKI_ID": wiki_id,
         "DOORAY_PROJECT_ID": project_id,
-        "TITLE": title,
-        "DOC_CONTENT": doc_content,
+        "API_KEY": registry_key,
         "REPO_NAME": repo_name,
         "ORG_GITHUB_TOKEN": github_token,
     }
@@ -203,22 +204,32 @@ def main():
             print(f"{var} 환경 변수가 필요합니다.", file=sys.stderr)
             sys.exit(1)
 
-    # 서비스 repo checkout
-    if not checkout_service_repo(repo_name, github_token):
+    # rest-api-docs repo checkout
+    if not checkout_docs_repo(github_token):
         sys.exit(1)
 
-    main_registry_file = os.path.join(SERVICE_REPO_DIR, MAIN_REGISTRY_PATH)
-    draft_registry_file = os.path.join(SERVICE_REPO_DIR, DRAFT_REGISTRY_PATH)
+    main_registry_file = os.path.join(DOCS_REPO_DIR, MAIN_REGISTRY_PATH)
+    draft_registry_file = os.path.join(DOCS_REPO_DIR, DRAFT_REGISTRY_PATH)
 
     main_registry = read_registry(main_registry_file)
     draft_registry = read_registry(draft_registry_file)
 
-    # 본 페이지 제목에서 [API Draft] 접두사 제거
-    publish_title = title.replace("[API Draft] ", "").replace("[API Draft]", "").strip()
+    # draft-registry에서 draft_page_id, url_hint 조회
+    draft_entry = draft_registry.get(repo_name, {}).get(registry_key)
+    if not draft_entry:
+        print(f"[ERROR] draft-registry에 '{repo_name} / {registry_key}' 항목이 없습니다.", file=sys.stderr)
+        sys.exit(1)
+
+    draft_page_id = draft_entry["page_id"]
+    url_hint = draft_entry.get("url_hint", "")
+
+    # Dooray에서 draft 페이지 내용 fetch
+    draft_title, doc_content = get_dooray_page(dooray_api_key, wiki_id, draft_page_id, base_url)
+    publish_title = draft_title.replace("[API Draft] ", "").replace("[API Draft]", "").strip()
 
     # 기존 페이지 있으면 업데이트, 없으면 생성
-    if registry_key and registry_key in main_registry:
-        existing_page_id = main_registry[registry_key]
+    existing_page_id = main_registry.get(repo_name, {}).get(registry_key)
+    if existing_page_id:
         update_dooray_page(dooray_api_key, wiki_id, existing_page_id, publish_title, doc_content, base_url)
         final_page_id = existing_page_id
         action = "updated"
@@ -231,20 +242,24 @@ def main():
         print("[ERROR] 페이지 ID를 가져올 수 없습니다.", file=sys.stderr)
         sys.exit(1)
 
-    # registry 업데이트
-    if registry_key:
-        main_registry[registry_key] = final_page_id
-        write_registry(main_registry_file, main_registry)
+    # main-registry 갱신
+    if repo_name not in main_registry:
+        main_registry[repo_name] = {}
+    main_registry[repo_name][registry_key] = final_page_id
+    write_registry(main_registry_file, main_registry)
 
-        if registry_key in draft_registry:
-            del draft_registry[registry_key]
-            write_registry(draft_registry_file, draft_registry)
+    # draft-registry에서 제거
+    if registry_key in draft_registry.get(repo_name, {}):
+        del draft_registry[repo_name][registry_key]
+        if not draft_registry[repo_name]:
+            del draft_registry[repo_name]
+        write_registry(draft_registry_file, draft_registry)
 
-        git_commit_and_push(
-            SERVICE_REPO_DIR,
-            [MAIN_REGISTRY_PATH, DRAFT_REGISTRY_PATH],
-            f"chore: publish api doc - {registry_key} [skip ci]",
-        )
+    git_commit_and_push(
+        DOCS_REPO_DIR,
+        [MAIN_REGISTRY_PATH, DRAFT_REGISTRY_PATH],
+        f"chore: publish api doc - {repo_name} {registry_key} [skip ci]",
+    )
 
     # Draft 삭제
     delete_dooray_page(dooray_api_key, wiki_id, draft_page_id, base_url)
@@ -254,8 +269,9 @@ def main():
     set_output("page_url", page_url)
 
     print(f"\n본 페이지 반영 완료 ({action})")
+    print(f"  repo: {repo_name}")
+    print(f"  API Key: {registry_key}")
     print(f"  제목: {publish_title}")
-    print(f"  API Key: {registry_key or '없음'}")
     print(f"  페이지 ID: {final_page_id}")
 
 

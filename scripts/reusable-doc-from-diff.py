@@ -34,7 +34,7 @@ _METHOD_MAPPING_RE = re.compile(
     r')'
 )
 
-PROMPT_DIR = "shared-config/write-api-docs"
+PROMPT_DIR = "shared-config/rest-api-docs"
 SYSTEM_PROMPT_FILE = f"{PROMPT_DIR}/docs-writer.md"
 TEMPLATE_FILE = f"{PROMPT_DIR}/api-docs-template.md"
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-20250514")
