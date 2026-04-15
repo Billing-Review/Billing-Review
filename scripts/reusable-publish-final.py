@@ -20,7 +20,6 @@ Draft 페이지를 검토 후 본 API 문서 위키에 반영합니다.
   DOORAY_DEFAULT_PARENT_PAGE_ID   기본 위키 부모 페이지 ID
   API_KEY                         레지스트리 키 (예: GET /api/v1/todos)
   REPO_NAME                       서비스 저장소 이름 (org/repo)
-  ORG_GITHUB_TOKEN                GitHub 인증 토큰 (rest-api-docs repo push용)
   GITHUB_OUTPUT                   GitHub Actions 출력 파일 경로
 """
 
@@ -31,7 +30,6 @@ import sys
 import urllib.error
 import urllib.request
 
-DOCS_REPO = "dev-billing/rest-api-docs"
 DOCS_REPO_DIR = "rest-api-docs"
 
 
@@ -147,22 +145,6 @@ def git_commit_and_push(repo_dir: str, files: list, message: str):
         print("[INFO] registry 커밋 완료")
 
 
-def checkout_docs_repo(token: str) -> bool:
-    if os.path.exists(DOCS_REPO_DIR):
-        import shutil
-        shutil.rmtree(DOCS_REPO_DIR)
-    url = f"https://x-access-token:{token}@github.com/{DOCS_REPO}.git"
-    result = subprocess.run(
-        ["git", "clone", "--depth=1", url, DOCS_REPO_DIR],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        print(f"[ERROR] rest-api-docs repo checkout 실패: {result.stderr}", file=sys.stderr)
-        return False
-    print(f"[INFO] rest-api-docs repo checkout 완료")
-    return True
-
-
 def get_target_parent(url_hint: str) -> str:
     if url_hint == "internal":
         parent = os.environ.get("DOORAY_INTERNAL_PARENT_PAGE_ID", "")
@@ -210,7 +192,7 @@ def main():
     base_url = os.environ.get("DOORAY_BASE_URL", "https://api.dooray.com")
     registry_key = os.environ.get("API_KEY", "")
     repo_name = os.environ.get("REPO_NAME", "")
-    github_token = os.environ.get("ORG_GITHUB_TOKEN", "")
+    repo_short_name = repo_name.split("/")[-1] if repo_name else ""
 
     required = {
         "DOORAY_API_KEY": dooray_api_key,
@@ -218,25 +200,18 @@ def main():
         "DOORAY_PROJECT_ID": project_id,
         "API_KEY": registry_key,
         "REPO_NAME": repo_name,
-        "ORG_GITHUB_TOKEN": github_token,
     }
     for var, val in required.items():
         if not val:
             print(f"{var} 환경 변수가 필요합니다.", file=sys.stderr)
             sys.exit(1)
 
-    # rest-api-docs repo checkout
-    if not checkout_docs_repo(github_token):
-        sys.exit(1)
+    # 레포별 registry 경로 (shared-workflows/rest-api-docs/{repo_short_name}/ 로컬)
+    main_registry_path = os.path.join(DOCS_REPO_DIR, repo_short_name, "api-docs-registry.json")
+    draft_registry_path = os.path.join(DOCS_REPO_DIR, repo_short_name, "api-docs-draft-registry.json")
 
-    # 레포별 registry 경로 (없으면 자동 생성됨)
-    main_registry_path = os.path.join(repo_short_name, "api-docs-registry.json")
-    draft_registry_path = os.path.join(repo_short_name, "api-docs-draft-registry.json")
-    main_registry_file = os.path.join(DOCS_REPO_DIR, main_registry_path)
-    draft_registry_file = os.path.join(DOCS_REPO_DIR, draft_registry_path)
-
-    main_registry = read_registry(main_registry_file)
-    draft_registry = read_registry(draft_registry_file)
+    main_registry = read_registry(main_registry_path)
+    draft_registry = read_registry(draft_registry_path)
 
     # draft-registry에서 draft_page_id, url_hint 조회
     draft_entry = draft_registry.get(registry_key)
@@ -250,9 +225,6 @@ def main():
     # Dooray에서 draft 페이지 내용 fetch
     draft_title, doc_content = get_dooray_page(dooray_api_key, wiki_id, draft_page_id, base_url)
     publish_title = draft_title.replace("[API Draft] ", "").replace("[API Draft]", "").strip()
-
-    # repo_name에서 짧은 레포명 추출 (예: dev-billing/todo-service → todo-service)
-    repo_short_name = repo_name.split("/")[-1]
 
     # 기존 페이지 있으면 업데이트, 없으면 레포 하위에 생성
     existing_page_id = main_registry.get(registry_key)
@@ -272,15 +244,15 @@ def main():
 
     # main-registry 갱신
     main_registry[registry_key] = final_page_id
-    write_registry(main_registry_file, main_registry)
+    write_registry(main_registry_path, main_registry)
 
     # draft-registry에서 제거
     if registry_key in draft_registry:
         del draft_registry[registry_key]
-        write_registry(draft_registry_file, draft_registry)
+        write_registry(draft_registry_path, draft_registry)
 
     git_commit_and_push(
-        DOCS_REPO_DIR,
+        ".",
         [main_registry_path, draft_registry_path],
         f"chore: publish api doc - {repo_name} {registry_key} [skip ci]",
     )

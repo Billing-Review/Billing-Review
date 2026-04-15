@@ -14,7 +14,6 @@ rest-api-docs repo의 draft-registry를 업데이트합니다.
   DOC_CONTENT                 마크다운 문서 본문
   URL_HINT                    위키 경로 분류 힌트 (internal/external/'')
   API_KEY                     레지스트리 키 (예: GET /api/v1/todos)
-  ORG_GITHUB_TOKEN            GitHub 인증 토큰 (rest-api-docs repo push용)
   GITHUB_OUTPUT               GitHub Actions 출력 파일 경로
 """
 
@@ -27,7 +26,6 @@ import urllib.error
 import urllib.request
 from datetime import timezone
 
-DOCS_REPO = "dev-billing/rest-api-docs"
 DOCS_REPO_DIR = "rest-api-docs"
 
 
@@ -128,22 +126,6 @@ def git_commit_and_push(repo_dir: str, files: list, message: str):
         print("[INFO] registry 커밋 완료")
 
 
-def checkout_docs_repo(token: str):
-    if os.path.exists(DOCS_REPO_DIR):
-        import shutil
-        shutil.rmtree(DOCS_REPO_DIR)
-    url = f"https://x-access-token:{token}@github.com/{DOCS_REPO}.git"
-    result = subprocess.run(
-        ["git", "clone", "--depth=1", url, DOCS_REPO_DIR],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        print(f"[WARN] rest-api-docs repo checkout 실패: {result.stderr}")
-        return False
-    print(f"[INFO] rest-api-docs repo checkout 완료")
-    return True
-
-
 def main():
     api_key = os.environ.get("DOORAY_API_KEY", "")
     wiki_id = os.environ.get("DOORAY_WIKI_ID", "")
@@ -155,7 +137,6 @@ def main():
     url_hint = os.environ.get("URL_HINT", "")
     registry_key = os.environ.get("API_KEY", "")
     repo_name = os.environ.get("REPO_NAME", "")
-    github_token = os.environ.get("ORG_GITHUB_TOKEN", "")
     repo_short_name = repo_name.split("/")[-1] if repo_name else ""
 
     required = {
@@ -180,17 +161,11 @@ def main():
 
 {doc_content}"""
 
-    # rest-api-docs repo checkout (registry 업데이트용)
-    registry_available = False
-    if github_token:
-        registry_available = checkout_docs_repo(github_token)
-
-    # 레포별 draft-registry 경로
-    draft_registry_path = os.path.join(repo_short_name, "api-docs-draft-registry.json") if repo_short_name else ""
-    draft_registry_file = os.path.join(DOCS_REPO_DIR, draft_registry_path) if draft_registry_path else ""
+    # 레포별 draft-registry 경로 (shared-workflows/rest-api-docs/{repo_short_name}/ 로컬)
+    draft_registry_path = os.path.join(DOCS_REPO_DIR, repo_short_name, "api-docs-draft-registry.json") if repo_short_name else ""
     draft_registry = {}
-    if registry_available and draft_registry_file:
-        draft_registry = read_registry(draft_registry_file)
+    if draft_registry_path:
+        draft_registry = read_registry(draft_registry_path)
         if registry_key:
             existing = draft_registry.get(registry_key)
             if existing:
@@ -202,11 +177,11 @@ def main():
     page_url = f"{base_url}/wiki/{project_id}/{page_id}"
 
     # draft-registry 업데이트
-    if registry_available and draft_registry_file and registry_key and page_id:
+    if draft_registry_path and registry_key and page_id:
         draft_registry[registry_key] = {"page_id": page_id, "url_hint": url_hint}
-        write_registry(draft_registry_file, draft_registry)
+        write_registry(draft_registry_path, draft_registry)
         git_commit_and_push(
-            DOCS_REPO_DIR,
+            ".",
             [draft_registry_path],
             f"chore: update draft registry - {repo_short_name} {registry_key} [skip ci]",
         )
