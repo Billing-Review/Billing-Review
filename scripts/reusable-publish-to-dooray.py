@@ -26,7 +26,8 @@ import urllib.error
 import urllib.request
 from datetime import timezone
 
-DOCS_REPO_DIR = "rest-api-docs"
+GIT_REPO_DIR = "shared-config"          # shared-workflows checkout 경로
+DOCS_REPO_DIR = "rest-api-docs"         # shared-workflows 내 registry 디렉토리
 
 
 def set_output(name: str, value: str):
@@ -161,8 +162,10 @@ def main():
 
 {doc_content}"""
 
-    # 레포별 draft-registry 경로 (shared-workflows/rest-api-docs/{repo_short_name}/ 로컬)
-    draft_registry_path = os.path.join(DOCS_REPO_DIR, repo_short_name, "api-docs-draft-registry.json") if repo_short_name else ""
+    # 레포별 draft-registry 경로: shared-config/rest-api-docs/{repo_short_name}/
+    # (없으면 write_registry가 디렉토리 + 파일 자동 생성)
+    draft_registry_rel = os.path.join(DOCS_REPO_DIR, repo_short_name, "api-docs-draft-registry.json") if repo_short_name else ""
+    draft_registry_path = os.path.join(GIT_REPO_DIR, draft_registry_rel) if draft_registry_rel else ""
     draft_registry = {}
     if draft_registry_path:
         draft_registry = read_registry(draft_registry_path)
@@ -176,13 +179,13 @@ def main():
     page_id = result.get("result", {}).get("id", "")
     page_url = f"{base_url}/wiki/{project_id}/{page_id}"
 
-    # draft-registry 업데이트
+    # draft-registry 업데이트 (디렉토리·파일 없으면 자동 생성)
     if draft_registry_path and registry_key and page_id:
         draft_registry[registry_key] = {"page_id": page_id, "url_hint": url_hint}
         write_registry(draft_registry_path, draft_registry)
         git_commit_and_push(
-            ".",
-            [draft_registry_path],
+            GIT_REPO_DIR,
+            [draft_registry_rel],   # git add 경로는 GIT_REPO_DIR 내 상대경로
             f"chore: update draft registry - {repo_short_name} {registry_key} [skip ci]",
         )
 

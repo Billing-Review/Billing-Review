@@ -30,7 +30,8 @@ import sys
 import urllib.error
 import urllib.request
 
-DOCS_REPO_DIR = "rest-api-docs"
+GIT_REPO_DIR = "shared-config"          # shared-workflows checkout 경로
+DOCS_REPO_DIR = "rest-api-docs"         # shared-workflows 내 registry 디렉토리
 
 
 def set_output(name: str, value: str):
@@ -206,9 +207,12 @@ def main():
             print(f"{var} 환경 변수가 필요합니다.", file=sys.stderr)
             sys.exit(1)
 
-    # 레포별 registry 경로 (shared-workflows/rest-api-docs/{repo_short_name}/ 로컬)
-    main_registry_path = os.path.join(DOCS_REPO_DIR, repo_short_name, "api-docs-registry.json")
-    draft_registry_path = os.path.join(DOCS_REPO_DIR, repo_short_name, "api-docs-draft-registry.json")
+    # 레포별 registry 경로: shared-config/rest-api-docs/{repo_short_name}/
+    # (없으면 write_registry가 디렉토리 + 파일 자동 생성)
+    main_registry_rel  = os.path.join(DOCS_REPO_DIR, repo_short_name, "api-docs-registry.json")
+    draft_registry_rel = os.path.join(DOCS_REPO_DIR, repo_short_name, "api-docs-draft-registry.json")
+    main_registry_path  = os.path.join(GIT_REPO_DIR, main_registry_rel)
+    draft_registry_path = os.path.join(GIT_REPO_DIR, draft_registry_rel)
 
     main_registry = read_registry(main_registry_path)
     draft_registry = read_registry(draft_registry_path)
@@ -252,8 +256,8 @@ def main():
         write_registry(draft_registry_path, draft_registry)
 
     git_commit_and_push(
-        ".",
-        [main_registry_path, draft_registry_path],
+        GIT_REPO_DIR,
+        [main_registry_rel, draft_registry_rel],   # git add 경로는 GIT_REPO_DIR 내 상대경로
         f"chore: publish api doc - {repo_name} {registry_key} [skip ci]",
     )
 
