@@ -111,6 +111,49 @@ def extract_api_key_from_diff(api_diff: str) -> str:
     return ""
 
 
+def extract_deleted_endpoints(full_diff: str) -> list:
+    """diff에서 삭제된(-) Controller 라인의 @*Mapping 어노테이션을 파싱해 'METHOD /path' 목록 반환."""
+    result = []
+    sections = re.split(r"(?=^diff --git )", full_diff, flags=re.MULTILINE)
+    ctrl_pattern = re.compile(r"(Controller|Handler|Router)\.(java|kt|go|py|ts|js)$")
+
+    for section in sections:
+        file_m = re.search(r"^diff --git a/(.+) b/", section, re.MULTILINE)
+        if not file_m:
+            continue
+        filepath = file_m.group(1)
+        if not ctrl_pattern.search(filepath):
+            continue
+
+        # 클래스 레벨 prefix는 현재 파일에서 읽음 (삭제 후 남은 코드 기준)
+        class_prefix = ""
+        if os.path.exists(filepath):
+            with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+            cm = _CLASS_MAPPING_RE.search(content)
+            if cm:
+                class_prefix = cm.group(1).rstrip("/")
+
+        # 삭제된(-) 라인에서 @*Mapping 추출
+        for line in section.splitlines():
+            if not line.startswith("-"):
+                continue
+            mm = _METHOD_MAPPING_RE.search(line)
+            if not mm:
+                continue
+            verb = mm.group(1).upper()
+            path = mm.group(2) or ""
+            if verb == "REQUEST":
+                verb = "GET"
+            sep = "/" if path and not path.startswith("/") else ""
+            full_path = class_prefix + sep + path
+            if full_path:
+                endpoint = f"{verb} {full_path}"
+                if endpoint not in result:
+                    result.append(endpoint)
+    return result
+
+
 def filter_api_diff(full_diff: str) -> str:
     sections = re.split(r"(?=^diff --git )", full_diff, flags=re.MULTILINE)
     api_sections = [
@@ -231,13 +274,18 @@ PR 설명: {pr_body}
         url_hint = "external"
 
     api_key = extract_api_key_from_diff(api_diff)
+    deleted_endpoints = extract_deleted_endpoints(full_diff)
 
     set_output("doc_content", doc_content)
     set_output("title", title)
     set_output("url_hint", url_hint)
     set_output("api_key", api_key)
+    set_output("has_deleted_endpoints", "true" if deleted_endpoints else "false")
+    set_output("deleted_endpoints", "\n".join(deleted_endpoints))
 
     print(f"문서 생성 완료 | 제목: {title} | URL 힌트: {url_hint or '없음'} | API Key: {api_key or '없음'}")
+    if deleted_endpoints:
+        print(f"삭제된 엔드포인트 감지: {', '.join(deleted_endpoints)}")
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ Draft 페이지를 검토 후 본 API 문서 위키에 반영합니다.
 
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.error
@@ -146,6 +147,27 @@ def git_commit_and_push(repo_dir: str, files: list, message: str):
         print("[INFO] registry 커밋 완료")
 
 
+def extract_url_hint_from_meta(content: str):
+    """Draft 메타 블록의 위키 분류 → url_hint 역매핑. 파싱 실패 시 None 반환."""
+    m = re.search(r'위키 분류:\s*(.+)', content)
+    if not m:
+        return None
+    category = m.group(1).strip()
+    if "사내" in category:
+        return "internal"
+    elif "사외" in category:
+        return "external"
+    return ""
+
+
+def strip_draft_meta(content: str) -> str:
+    """상단 [Draft] 메타 블록과 구분선(---) 제거."""
+    return re.sub(
+        r'^> \*\*\[Draft\]\*\*.*\n> 생성 시각:.*\n\n---\n\n',
+        '', content, flags=re.MULTILINE
+    )
+
+
 def get_target_parent(url_hint: str) -> str:
     if url_hint == "internal":
         parent = os.environ.get("DOORAY_INTERNAL_PARENT_PAGE_ID", "")
@@ -229,6 +251,11 @@ def main():
     # Dooray에서 draft 페이지 내용 fetch
     draft_title, doc_content = get_dooray_page(dooray_api_key, wiki_id, draft_page_id, base_url)
     publish_title = draft_title.replace("[API Draft] ", "").replace("[API Draft]", "").strip()
+
+    # Draft 메타 블록에서 url_hint 파싱 (성공 시 draft-registry 값 덮어쓰기)
+    parsed_hint = extract_url_hint_from_meta(doc_content)
+    url_hint = parsed_hint if parsed_hint is not None else url_hint
+    doc_content = strip_draft_meta(doc_content)
 
     # 기존 페이지 있으면 업데이트, 없으면 레포 하위에 생성
     existing_page_id = main_registry.get(registry_key)

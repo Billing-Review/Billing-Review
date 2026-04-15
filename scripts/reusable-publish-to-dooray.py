@@ -24,7 +24,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
-from datetime import timezone
+from datetime import timezone, timedelta
 
 GIT_REPO_DIR = "shared-config"          # shared-workflows checkout 경로
 DOCS_REPO_DIR = "rest-api-docs"         # shared-workflows 내 registry 디렉토리
@@ -154,7 +154,8 @@ def main():
             sys.exit(1)
 
     wiki_category = classify_wiki_path(url_hint)
-    now = datetime.datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    KST = timezone(timedelta(hours=9))
+    now = datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")
     full_content = f"""> **[Draft]** 자동 생성된 API 문서입니다. 검토 후 publish 하세요.
 > 생성 시각: {now} | 위키 분류: {wiki_category}
 

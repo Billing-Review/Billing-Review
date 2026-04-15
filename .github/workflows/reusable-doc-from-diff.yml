@@ -35,6 +35,12 @@ on:
       api_key:
         description: "레지스트리 키 (예: GET /api/v1/todos)"
         value: ${{ jobs.generate.outputs.api_key }}
+      has_deleted_endpoints:
+        description: "삭제된 엔드포인트가 있으면 true"
+        value: ${{ jobs.generate.outputs.has_deleted_endpoints }}
+      deleted_endpoints:
+        description: "삭제된 엔드포인트 목록 (줄바꿈 구분)"
+        value: ${{ jobs.generate.outputs.deleted_endpoints }}
 
 jobs:
   generate:
@@ -46,6 +52,8 @@ jobs:
       url_hint: ${{ steps.generate-doc.outputs.url_hint }}
       skipped: ${{ steps.generate-doc.outputs.skipped }}
       api_key: ${{ steps.generate-doc.outputs.api_key }}
+      has_deleted_endpoints: ${{ steps.generate-doc.outputs.has_deleted_endpoints }}
+      deleted_endpoints: ${{ steps.generate-doc.outputs.deleted_endpoints }}
 
     steps:
       - name: Clean workspace
