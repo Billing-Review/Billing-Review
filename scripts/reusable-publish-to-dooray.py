@@ -29,7 +29,6 @@ from datetime import timezone
 
 DOCS_REPO = "dev-billing/rest-api-docs"
 DOCS_REPO_DIR = "rest-api-docs"
-DRAFT_REGISTRY_PATH = "registry/api-docs-draft-registry.json"
 
 
 def set_output(name: str, value: str):
@@ -157,6 +156,7 @@ def main():
     registry_key = os.environ.get("API_KEY", "")
     repo_name = os.environ.get("REPO_NAME", "")
     github_token = os.environ.get("ORG_GITHUB_TOKEN", "")
+    repo_short_name = repo_name.split("/")[-1] if repo_name else ""
 
     required = {
         "DOORAY_API_KEY": api_key,
@@ -185,13 +185,14 @@ def main():
     if github_token:
         registry_available = checkout_docs_repo(github_token)
 
-    # draft-registry에서 기존 draft 확인 → 있으면 먼저 삭제
-    draft_registry_file = os.path.join(DOCS_REPO_DIR, DRAFT_REGISTRY_PATH)
+    # 레포별 draft-registry 경로
+    draft_registry_path = os.path.join(repo_short_name, "api-docs-draft-registry.json") if repo_short_name else ""
+    draft_registry_file = os.path.join(DOCS_REPO_DIR, draft_registry_path) if draft_registry_path else ""
     draft_registry = {}
-    if registry_available:
+    if registry_available and draft_registry_file:
         draft_registry = read_registry(draft_registry_file)
-        if registry_key and repo_name:
-            existing = draft_registry.get(repo_name, {}).get(registry_key)
+        if registry_key:
+            existing = draft_registry.get(registry_key)
             if existing:
                 delete_dooray_page(api_key, wiki_id, existing["page_id"], base_url)
 
@@ -201,15 +202,13 @@ def main():
     page_url = f"{base_url}/wiki/{project_id}/{page_id}"
 
     # draft-registry 업데이트
-    if registry_available and registry_key and repo_name and page_id:
-        if repo_name not in draft_registry:
-            draft_registry[repo_name] = {}
-        draft_registry[repo_name][registry_key] = {"page_id": page_id, "url_hint": url_hint}
+    if registry_available and draft_registry_file and registry_key and page_id:
+        draft_registry[registry_key] = {"page_id": page_id, "url_hint": url_hint}
         write_registry(draft_registry_file, draft_registry)
         git_commit_and_push(
             DOCS_REPO_DIR,
-            [DRAFT_REGISTRY_PATH],
-            f"chore: update draft registry - {registry_key} [skip ci]",
+            [draft_registry_path],
+            f"chore: update draft registry - {repo_short_name} {registry_key} [skip ci]",
         )
 
     set_output("page_id", page_id)

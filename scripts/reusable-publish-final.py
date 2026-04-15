@@ -33,8 +33,6 @@ import urllib.request
 
 DOCS_REPO = "dev-billing/rest-api-docs"
 DOCS_REPO_DIR = "rest-api-docs"
-MAIN_REGISTRY_PATH = "registry/api-docs-registry.json"
-DRAFT_REGISTRY_PATH = "registry/api-docs-draft-registry.json"
 
 
 def set_output(name: str, value: str):
@@ -231,14 +229,17 @@ def main():
     if not checkout_docs_repo(github_token):
         sys.exit(1)
 
-    main_registry_file = os.path.join(DOCS_REPO_DIR, MAIN_REGISTRY_PATH)
-    draft_registry_file = os.path.join(DOCS_REPO_DIR, DRAFT_REGISTRY_PATH)
+    # 레포별 registry 경로 (없으면 자동 생성됨)
+    main_registry_path = os.path.join(repo_short_name, "api-docs-registry.json")
+    draft_registry_path = os.path.join(repo_short_name, "api-docs-draft-registry.json")
+    main_registry_file = os.path.join(DOCS_REPO_DIR, main_registry_path)
+    draft_registry_file = os.path.join(DOCS_REPO_DIR, draft_registry_path)
 
     main_registry = read_registry(main_registry_file)
     draft_registry = read_registry(draft_registry_file)
 
     # draft-registry에서 draft_page_id, url_hint 조회
-    draft_entry = draft_registry.get(repo_name, {}).get(registry_key)
+    draft_entry = draft_registry.get(registry_key)
     if not draft_entry:
         print(f"[ERROR] draft-registry에 '{repo_name} / {registry_key}' 항목이 없습니다.", file=sys.stderr)
         sys.exit(1)
@@ -254,7 +255,7 @@ def main():
     repo_short_name = repo_name.split("/")[-1]
 
     # 기존 페이지 있으면 업데이트, 없으면 레포 하위에 생성
-    existing_page_id = main_registry.get(repo_name, {}).get(registry_key)
+    existing_page_id = main_registry.get(registry_key)
     if existing_page_id:
         update_dooray_page(dooray_api_key, wiki_id, existing_page_id, publish_title, doc_content, base_url)
         final_page_id = existing_page_id
@@ -270,21 +271,17 @@ def main():
         sys.exit(1)
 
     # main-registry 갱신
-    if repo_name not in main_registry:
-        main_registry[repo_name] = {}
-    main_registry[repo_name][registry_key] = final_page_id
+    main_registry[registry_key] = final_page_id
     write_registry(main_registry_file, main_registry)
 
     # draft-registry에서 제거
-    if registry_key in draft_registry.get(repo_name, {}):
-        del draft_registry[repo_name][registry_key]
-        if not draft_registry[repo_name]:
-            del draft_registry[repo_name]
+    if registry_key in draft_registry:
+        del draft_registry[registry_key]
         write_registry(draft_registry_file, draft_registry)
 
     git_commit_and_push(
         DOCS_REPO_DIR,
-        [MAIN_REGISTRY_PATH, DRAFT_REGISTRY_PATH],
+        [main_registry_path, draft_registry_path],
         f"chore: publish api doc - {repo_name} {registry_key} [skip ci]",
     )
 
