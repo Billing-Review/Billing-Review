@@ -139,8 +139,18 @@ def get_pr_diff(pr_number: str) -> str:
 
 
 def compute_diff_hash(diff: str) -> str:
-    """diff 내용의 SHA-256 해시를 계산한다."""
-    return hashlib.sha256(diff.encode("utf-8")).hexdigest()
+    """diff에서 실제 변경 내용(+/- 라인)만 추출해 SHA-256 해시를 계산한다.
+
+    hunk 헤더(@@ 라인)의 줄 번호는 rebase 시 변경되므로 제외한다.
+    """
+    content_lines = []
+    for line in diff.split("\n"):
+        if line.startswith("diff --git") or line.startswith("--- ") or line.startswith("+++ "):
+            content_lines.append(line)
+        elif line.startswith("+") or line.startswith("-"):
+            content_lines.append(line)
+    normalized = "\n".join(content_lines)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def get_existing_claude_review(pr_number: str, pr_info: dict) -> dict:
