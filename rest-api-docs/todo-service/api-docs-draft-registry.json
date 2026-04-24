@@ -2,5 +2,9 @@
   "GET /external/api/todo-list/external/api/todo-list": {
     "page_id": "4317543422953981350",
     "url_hint": "internal"
+  },
+  "GET /api/todo-list/api/todo-list": {
+    "page_id": "4317564926862510135",
+    "url_hint": ""
   }
 }
