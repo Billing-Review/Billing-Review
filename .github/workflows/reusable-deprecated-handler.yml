@@ -41,7 +41,7 @@ jobs:
           DOORAY_WIKI_ID: ${{ secrets.DOORAY_WIKI_ID }}
           DELETED_ENDPOINTS: ${{ inputs.deleted_endpoints }}
           REPO_NAME: ${{ inputs.repo_name }}
-        run: python3 shared-config/scripts/reusable-deprecated-handler.py
+        run: python3 shared-config/scripts/api-docs/deprecated_handler.py
 
       - name: Cleanup workspace
         if: always()

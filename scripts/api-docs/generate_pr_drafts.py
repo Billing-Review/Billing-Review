@@ -1,0 +1,479 @@
+#!/usr/bin/env python3
+"""
+generate_pr_drafts.py
+
+PR diff에서 변경된 API를 감지하고 각 API별 Dooray Draft 페이지를 생성합니다.
+삭제된 API는 @Deprecated 처리합니다.
+완료 후 PR comment로 draft 링크를 게시합니다.
+
+환경 변수:
+  GH_TOKEN                  GitHub 인증 토큰
+  CLAUDE_CODE_OAUTH_TOKEN   Claude CLI 인증 토큰
+  PR_NUMBER                 PR 번호
+  REPO_NAME                 저장소 이름 (org/repo)
+  DOORAY_API_KEY            Dooray API 토큰
+  DOORAY_WIKI_ID            Dooray 위키 ID
+  DOORAY_PROJECT_ID         Dooray 프로젝트 ID
+  DOORAY_DRAFT_PARENT_PAGE_ID  Draft 부모 페이지 ID
+  CLAUDE_MODEL              사용할 Claude 모델 (기본값: claude-opus-4-6)
+  CLAUDE_TIMEOUT            Claude CLI 타임아웃 초 (기본값: 180)
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.dirname(__file__))
+from lib.api_utils import (
+    normalize_api_key, now_kst_display, today_kst,
+    read_registry, write_registry, registry_path_for, registry_rel_for,
+)
+from lib.dooray import create_page, delete_page, get_page, update_page
+from lib.git_utils import git_commit_and_push
+
+PROMPT_DIR = "shared-config/rest-api-docs"
+SYSTEM_PROMPT_FILE = f"{PROMPT_DIR}/docs-writer.md"
+TEMPLATE_FILE = f"{PROMPT_DIR}/api-docs-template.md"
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-opus-4-6")
+CLAUDE_TIMEOUT = int(os.environ.get("CLAUDE_TIMEOUT", "180"))
+MAX_DIFF_LENGTH = 15000
+MAX_FILE_CHARS = 8000
+
+_CLASS_MAPPING_RE = re.compile(
+    r'@RequestMapping\s*\(\s*(?:value\s*=\s*|path\s*=\s*)?["\']([^"\']+)["\']'
+)
+_METHOD_MAPPING_RE = re.compile(
+    r'@(Get|Post|Put|Delete|Patch|Request)Mapping'
+    r'(?:'
+    r'\s*\(\s*(?:value\s*=\s*|path\s*=\s*)?["\']([^"\']*)["\']'
+    r'|\s*\(\s*\)'
+    r'|\s*(?!\()'
+    r')'
+)
+CTRL_PATTERN = re.compile(r"(Controller|Handler|Router)\.(java|kt|go|py|ts|js)$")
+EXTERNAL_IMPORT_PREFIXES = (
+    "java.", "javax.", "jakarta.",
+    "org.springframework.", "org.slf4j.", "org.junit.", "org.mockito.",
+    "lombok.", "com.fasterxml.", "io.swagger.", "io.micrometer.",
+    "reactor.", "kotlin.", "kotlinx.",
+)
+
+
+# ── GitHub / Claude helpers ──────────────────────────────────────────────────
+
+def get_pr_diff(pr_number: str, repo_name: str) -> str:
+    result = subprocess.run(
+        ["gh", "pr", "diff", pr_number, "--repo", repo_name],
+        capture_output=True, text=True, env={**os.environ},
+    )
+    if result.returncode != 0:
+        print(f"gh pr diff 실패: {result.stderr}", file=sys.stderr)
+        sys.exit(1)
+    return result.stdout
+
+
+def get_pr_metadata(pr_number: str, repo_name: str) -> tuple:
+    result = subprocess.run(
+        ["gh", "pr", "view", pr_number, "--repo", repo_name,
+         "--json", "title,body,headRefName"],
+        capture_output=True, text=True, env={**os.environ},
+    )
+    if result.returncode != 0:
+        return "", "", ""
+    data = json.loads(result.stdout)
+    return data.get("title", ""), data.get("body", "") or "", data.get("headRefName", "")
+
+
+def post_pr_comment(pr_number: str, repo_name: str, body: str):
+    subprocess.run(
+        ["gh", "pr", "comment", pr_number, "--repo", repo_name, "--body", body],
+        env={**os.environ},
+    )
+
+
+def call_claude(prompt: str) -> str:
+    env = {
+        **os.environ,
+        "HOME": os.path.expanduser("~"),
+        "PYTHONIOENCODING": "utf-8",
+        "LANG": "en_US.UTF-8",
+        "LC_ALL": "en_US.UTF-8",
+    }
+    try:
+        result = subprocess.run(
+            ["claude", "-p", prompt, "--model", CLAUDE_MODEL, "--output-format", "text"],
+            capture_output=True, check=True, timeout=CLAUDE_TIMEOUT,
+            encoding="utf-8", errors="replace", env=env,
+        )
+        return result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        err = (e.stdout or "") + (e.stderr or "")
+        if "Not logged in" in err or "/login" in err:
+            print("[ERROR] Claude 인증 실패. CLAUDE_CODE_OAUTH_TOKEN 확인 필요", file=sys.stderr)
+        else:
+            print(f"[ERROR] Claude CLI 실패 (exit {e.returncode}): {e.stderr[:300]}", file=sys.stderr)
+        sys.exit(1)
+    except subprocess.TimeoutExpired:
+        print(f"[ERROR] Claude CLI 타임아웃 ({CLAUDE_TIMEOUT}s)", file=sys.stderr)
+        sys.exit(1)
+
+
+# ── diff 파싱 ─────────────────────────────────────────────────────────────────
+
+def get_class_prefix(filepath: str) -> str:
+    if not os.path.exists(filepath):
+        return ""
+    with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+        content = f.read()
+    m = _CLASS_MAPPING_RE.search(content)
+    return m.group(1).rstrip("/") if m else ""
+
+
+def extract_mappings_from_text(text: str, class_prefix: str) -> list:
+    results = []
+    for mm in _METHOD_MAPPING_RE.finditer(text):
+        verb = mm.group(1).upper()
+        if verb == "REQUEST":
+            verb = "GET"
+        path = mm.group(2) or ""
+        sep = "/" if path and not path.startswith("/") else ""
+        full_path = class_prefix + sep + path
+        if full_path:
+            results.append((verb, full_path))
+    return results
+
+
+def parse_diff(full_diff: str) -> tuple:
+    """diff → (changed: list[dict], deleted: list[dict])"""
+    changed, deleted = [], []
+    seen_changed, seen_deleted = set(), set()
+
+    sections = re.split(r"(?=^diff --git )", full_diff, flags=re.MULTILINE)
+    for section in sections:
+        file_m = re.search(r"^diff --git a/(.+) b/", section, re.MULTILINE)
+        if not file_m:
+            continue
+        filepath = file_m.group(1)
+        if not CTRL_PATTERN.search(filepath):
+            continue
+
+        class_prefix = get_class_prefix(filepath)
+
+        for line in section.splitlines():
+            if not (line.startswith("+") or line.startswith("-")):
+                continue
+            sign, text = line[0], line[1:]
+            for verb, path in extract_mappings_from_text(text, class_prefix):
+                key = normalize_api_key(verb, path)
+                if sign == "+" and key not in seen_changed:
+                    changed.append({"method": verb, "path": path, "file": filepath})
+                    seen_changed.add(key)
+                elif sign == "-" and key not in seen_deleted:
+                    deleted.append({"method": verb, "path": path})
+                    seen_deleted.add(key)
+
+    # +와 - 모두 있으면 수정(changed)이므로 deleted에서 제거
+    deleted = [d for d in deleted
+               if normalize_api_key(d["method"], d["path"]) not in seen_changed]
+    return changed, deleted
+
+
+def filter_diff_for_file(full_diff: str, filepath: str) -> str:
+    sections = re.split(r"(?=^diff --git )", full_diff, flags=re.MULTILINE)
+    for section in sections:
+        if f"diff --git a/{filepath}" in section or f"b/{filepath}" in section:
+            return section
+    return ""
+
+
+# ── Controller 파일 탐색 ──────────────────────────────────────────────────────
+
+def find_related_files(controller_paths: list) -> list:
+    import_pattern = re.compile(r'import\s+([\w.]+);')
+    related, seen = [], set(controller_paths)
+
+    for ctrl_path in controller_paths:
+        full = ctrl_path if os.path.exists(ctrl_path) else f"./{ctrl_path}"
+        try:
+            with open(full, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+        except OSError:
+            continue
+        for imp in import_pattern.findall(content):
+            if any(imp.startswith(p) for p in EXTERNAL_IMPORT_PREFIXES):
+                continue
+            file_path = "src/main/java/" + imp.replace(".", "/") + ".java"
+            if file_path not in seen and os.path.exists(file_path):
+                seen.add(file_path)
+                related.append(file_path)
+    return related
+
+
+def read_files(paths: list, label: str = "") -> str:
+    parts = []
+    for path in paths:
+        full = path if os.path.exists(path) else f"./{path}"
+        if os.path.exists(full):
+            with open(full, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+            parts.append(f"### [{label or path}] {path}\n```java\n{content[:MAX_FILE_CHARS]}\n```")
+    return "\n\n".join(parts)
+
+
+# ── 문서 생성 ─────────────────────────────────────────────────────────────────
+
+def infer_url_hint(path: str, code_content: str) -> str:
+    combined = (path + " " + code_content).lower()
+    if "internal" in combined:
+        return "internal"
+    if "external" in combined:
+        return "external"
+    return ""
+
+
+def generate_doc(method: str, path: str, ctrl_file: str, full_diff: str,
+                 pr_title: str, pr_body: str, existing_doc: str,
+                 system_prompt: str, template: str) -> str:
+    related = find_related_files([ctrl_file])
+    code_content = read_files([ctrl_file], "Controller") + "\n\n" + read_files(related, "참조")
+    file_diff = filter_diff_for_file(full_diff, ctrl_file)
+
+    update_section = ""
+    if existing_doc:
+        update_section = f"""
+## 기존 문서 (이미 등록된 API — 수정사항을 반영해 업데이트하세요)
+
+{existing_doc[:3000]}
+"""
+
+    prompt = f"""{system_prompt}
+
+다음은 [{method}] {path} API에 대한 코드와 PR 변경사항입니다.
+
+PR 제목: {pr_title}
+PR 설명: {pr_body[:1000] if pr_body else "(없음)"}
+
+## 소스 코드
+{code_content}
+
+## PR diff (해당 파일)
+```diff
+{file_diff[:MAX_DIFF_LENGTH]}
+```
+{update_section}
+
+아래 템플릿 형식으로 API 문서를 작성하세요.
+
+{template}
+"""
+    return call_claude(prompt)
+
+
+# ── Dooray draft 생성 ─────────────────────────────────────────────────────────
+
+def create_draft(dooray_api_key: str, wiki_id: str, draft_parent_id: str,
+                 base_url: str, project_id: str,
+                 api_key: str, title: str, doc_content: str, url_hint: str,
+                 registry: dict) -> str:
+    # 기존 draft가 있으면 삭제
+    existing = registry.get(api_key, {})
+    if isinstance(existing, dict) and existing.get("draft_page_id"):
+        delete_page(dooray_api_key, wiki_id, existing["draft_page_id"], base_url)
+
+    full_content = (
+        f"> **[Draft]** 자동 생성된 API 문서입니다. 검토 후 publish 하세요.\n"
+        f"> 생성 시각: {now_kst_display()} | 위키 분류: {url_hint or '기본'}\n\n---\n\n"
+        f"{doc_content}"
+    )
+
+    page_id = create_page(dooray_api_key, wiki_id, draft_parent_id, title, full_content, base_url)
+    page_url = f"{base_url}/wiki/{project_id}/{page_id}"
+    print(f"[INFO] Draft 생성: {api_key} → {page_url}")
+    return page_id, page_url
+
+
+# ── @Deprecated 처리 ─────────────────────────────────────────────────────────
+
+def handle_deprecated(dooray_api_key: str, wiki_id: str, base_url: str,
+                      api_key: str, registry: dict) -> bool:
+    entry = registry.get(api_key)
+    if not entry:
+        print(f"[INFO] registry 미등록, deprecated 스킵: {api_key}")
+        return False
+    if isinstance(entry, dict):
+        if entry.get("status") == "deprecated":
+            print(f"[INFO] 이미 deprecated: {api_key}")
+            return False
+        page_id = entry.get("page_id", "")
+    else:
+        page_id = str(entry)
+
+    if not page_id:
+        return False
+
+    today = today_kst()
+    marker = f"@Deprecated({today})\n\n"
+    try:
+        title, content = get_page(dooray_api_key, wiki_id, page_id, base_url)
+        if marker.strip() not in content:
+            update_page(dooray_api_key, wiki_id, page_id, title, marker + content, base_url)
+        registry[api_key] = {
+            **(entry if isinstance(entry, dict) else {"page_id": page_id}),
+            "status": "deprecated",
+            "deprecated_at": today,
+        }
+        return True
+    except Exception as e:
+        print(f"[WARN] deprecated 처리 실패 {api_key}: {e}")
+        return False
+
+
+# ── main ─────────────────────────────────────────────────────────────────────
+
+def main():
+    pr_number = os.environ.get("PR_NUMBER", "")
+    repo_name = os.environ.get("REPO_NAME", "")
+    # MODE: "draft" = 변경 API draft만, "deprecated" = 삭제 API처리만, "all" = 둘 다
+    mode = os.environ.get("GENERATE_MODE", "all").lower()
+    dooray_api_key = os.environ.get("DOORAY_API_KEY", "")
+    wiki_id = os.environ.get("DOORAY_WIKI_ID", "")
+    project_id = os.environ.get("DOORAY_PROJECT_ID", "")
+    draft_parent_id = os.environ.get("DOORAY_DRAFT_PARENT_PAGE_ID", "")
+    base_url = os.environ.get("DOORAY_BASE_URL", "https://api.dooray.com")
+    repo_short = repo_name.split("/")[-1] if repo_name else ""
+
+    for var, val in {
+        "PR_NUMBER": pr_number, "REPO_NAME": repo_name,
+        "DOORAY_API_KEY": dooray_api_key, "DOORAY_WIKI_ID": wiki_id,
+        "DOORAY_PROJECT_ID": project_id, "DOORAY_DRAFT_PARENT_PAGE_ID": draft_parent_id,
+    }.items():
+        if not val:
+            print(f"{var} 환경 변수가 필요합니다.", file=sys.stderr)
+            sys.exit(1)
+
+    full_diff = get_pr_diff(pr_number, repo_name)
+    changed, deleted = parse_diff(full_diff)
+
+    if not changed and not deleted:
+        print("::notice::Controller 변경사항 없음 — 스킵")
+        return
+
+    # mode 필터
+    if mode == "draft":
+        deleted = []
+    elif mode == "deprecated":
+        changed = []
+
+    pr_title, pr_body, _ = get_pr_metadata(pr_number, repo_name)
+
+    with open(SYSTEM_PROMPT_FILE, "r") as f:
+        system_prompt = f.read()
+    with open(TEMPLATE_FILE, "r") as f:
+        template = f.read()
+
+    reg_path = registry_path_for(repo_short)
+    reg_rel = registry_rel_for(repo_short)
+    registry = read_registry(reg_path)
+
+    draft_links = []
+
+    # ── 변경된 API: draft 생성 ─────────────────────────────────────────────
+    for api in changed:
+        method, path, ctrl_file = api["method"], api["path"], api["file"]
+        api_key = normalize_api_key(method, path)
+
+        # 기존 published 문서가 있으면 fetch (수정 컨텍스트 제공)
+        existing_entry = registry.get(api_key, {})
+        existing_doc = ""
+        if isinstance(existing_entry, dict) and existing_entry.get("page_id"):
+            try:
+                _, existing_doc = get_page(
+                    dooray_api_key, wiki_id, existing_entry["page_id"], base_url
+                )
+            except Exception:
+                existing_doc = ""
+
+        url_hint = (
+            existing_entry.get("url_hint", "") if isinstance(existing_entry, dict)
+            else infer_url_hint(path, "")
+        ) or infer_url_hint(path, ctrl_file)
+
+        print(f"[INFO] 문서 생성 중: {api_key}")
+        doc_content = generate_doc(
+            method, path, ctrl_file, full_diff,
+            pr_title, pr_body, existing_doc,
+            system_prompt, template,
+        )
+
+        is_update = (
+            isinstance(existing_entry, dict)
+            and existing_entry.get("status") == "published"
+        )
+        prefix = "[API Draft][수정]" if is_update else "[API Draft][신규]"
+        title = f"{prefix} {method} {path}"
+
+        page_id, page_url = create_draft(
+            dooray_api_key, wiki_id, draft_parent_id, base_url, project_id,
+            api_key, title, doc_content, url_hint, registry,
+        )
+
+        # registry 갱신
+        now = __import__("lib.api_utils", fromlist=["now_kst_iso"]).now_kst_iso()
+        registry[api_key] = {
+            **({} if not isinstance(existing_entry, dict) else existing_entry),
+            "status": "draft",
+            "draft_page_id": page_id,
+            "url_hint": url_hint,
+            "created_at": existing_entry.get("created_at", now) if isinstance(existing_entry, dict) else now,
+            "updated_at": now,
+            "deprecated_at": None,
+        }
+        if not registry[api_key].get("page_id"):
+            registry[api_key]["page_id"] = None
+
+        draft_links.append((api_key, page_url, "수정" if is_update else "신규"))
+
+    # ── 삭제된 API: deprecated 처리 ───────────────────────────────────────
+    deprecated_list = []
+    for api in deleted:
+        api_key = normalize_api_key(api["method"], api["path"])
+        if handle_deprecated(dooray_api_key, wiki_id, base_url, api_key, registry):
+            deprecated_list.append(api_key)
+
+    # ── registry 커밋 ─────────────────────────────────────────────────────
+    if draft_links or deprecated_list:
+        write_registry(reg_path, registry)
+        git_commit_and_push(
+            "shared-config",
+            [reg_rel],
+            f"chore: pr#{pr_number} api docs draft - {repo_short} [skip ci]",
+        )
+
+    # ── PR comment ────────────────────────────────────────────────────────
+    if draft_links or deprecated_list:
+        lines = ["## API 문서 Draft 생성 완료", ""]
+        if draft_links:
+            lines.append("| 구분 | API | Draft 링크 |")
+            lines.append("|------|-----|------------|")
+            for key, url, kind in draft_links:
+                lines.append(f"| {kind} | `{key}` | [Dooray Draft]({url}) |")
+            lines.append("")
+            lines.append(
+                "> Draft 검토 후 `api-doc-publish.yml`을 수동 실행하여 위키에 반영하세요."
+            )
+        if deprecated_list:
+            lines.append("")
+            lines.append("**삭제된 API (Deprecated 처리 완료)**")
+            for key in deprecated_list:
+                lines.append(f"- `{key}`")
+
+        post_pr_comment(pr_number, repo_name, "\n".join(lines))
+        print(f"PR #{pr_number} comment 게시 완료")
+
+    print(f"\n완료 — draft {len(draft_links)}건, deprecated {len(deprecated_list)}건")
+
+
+if __name__ == "__main__":
+    main()

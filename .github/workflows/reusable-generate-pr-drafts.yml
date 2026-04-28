@@ -1,0 +1,79 @@
+name: Reusable - Generate PR API Doc Drafts
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        required: true
+        type: number
+        description: "PR 번호"
+      repo_name:
+        required: true
+        type: string
+        description: "서비스 저장소 이름 (org/repo)"
+      mode:
+        required: false
+        type: string
+        default: "all"
+        description: "draft=변경API draft생성만, deprecated=삭제API처리만, all=둘다"
+    secrets:
+      ORG_GITHUB_TOKEN:
+        required: true
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+      DOORAY_API_KEY:
+        required: true
+      DOORAY_WIKI_ID:
+        required: true
+      DOORAY_PROJECT_ID:
+        required: true
+      DOORAY_DRAFT_PARENT_PAGE_ID:
+        required: true
+
+jobs:
+  generate:
+    runs-on:
+      group: billing-dev
+
+    steps:
+      - name: Clean workspace
+        run: find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+
+      - name: Checkout calling repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repo_name }}
+          token: ${{ secrets.ORG_GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Checkout shared-workflows
+        uses: actions/checkout@v4
+        with:
+          repository: dev-billing/shared-workflows
+          token: ${{ secrets.ORG_GITHUB_TOKEN }}
+          path: shared-config
+
+      - name: Validate Claude CLI
+        run: |
+          if ! claude --version > /dev/null 2>&1; then
+            echo "::error::Claude Code CLI가 이 Runner에 설치되어 있지 않습니다."
+            exit 1
+          fi
+          echo "✅ Claude CLI 확인됨: $(claude --version)"
+
+      - name: Generate PR Drafts
+        env:
+          GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          DOORAY_API_KEY: ${{ secrets.DOORAY_API_KEY }}
+          DOORAY_WIKI_ID: ${{ secrets.DOORAY_WIKI_ID }}
+          DOORAY_PROJECT_ID: ${{ secrets.DOORAY_PROJECT_ID }}
+          DOORAY_DRAFT_PARENT_PAGE_ID: ${{ secrets.DOORAY_DRAFT_PARENT_PAGE_ID }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          REPO_NAME: ${{ inputs.repo_name }}
+          GENERATE_MODE: ${{ inputs.mode }}
+        run: python3 shared-config/scripts/api-docs/generate_pr_drafts.py
+
+      - name: Cleanup workspace
+        if: always()
+        run: find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true

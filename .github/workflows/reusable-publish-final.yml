@@ -65,7 +65,7 @@ jobs:
           ORG_GITHUB_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
           API_KEY: ${{ inputs.api_key }}
           REPO_NAME: ${{ inputs.repo_name }}
-        run: python3 shared-config/scripts/reusable-publish-final.py
+        run: python3 shared-config/scripts/api-docs/publish_final.py
 
       - name: Cleanup workspace
         if: always()
