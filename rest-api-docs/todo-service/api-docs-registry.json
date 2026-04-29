@@ -1,20 +1,23 @@
 {
   "GET /external/api/todo-list": {
-    "status": "draft",
-    "draft_page_id": "4321325715082142417",
+    "status": "published",
+    "draft_page_id": null,
     "url_hint": "external",
     "created_at": "2026-04-29T16:02:48+09:00",
-    "updated_at": "2026-04-29T16:02:48+09:00",
+    "updated_at": "2026-04-29T16:09:44+09:00",
     "deprecated_at": null,
-    "page_id": null
+    "page_id": "4321329217054646969"
   },
   "POST /external/api/todo-list/create": {
-    "status": "draft",
-    "draft_page_id": "4321325925108504473",
+    "status": "published",
+    "draft_page_id": null,
     "url_hint": "external",
     "created_at": "2026-04-29T16:03:13+09:00",
-    "updated_at": "2026-04-29T16:03:13+09:00",
+    "updated_at": "2026-04-29T16:10:10+09:00",
     "deprecated_at": null,
-    "page_id": null
+    "page_id": "4321329431941627701"
+  },
+  "__repo_page_id__": {
+    "external": "4321329214678804210"
   }
 }
