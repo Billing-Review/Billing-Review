@@ -67,6 +67,22 @@ def write_summary(lines: list):
         print(content)
 
 
+_REPO_PAGE_KEY = "__repo_page_id__"
+
+
+def get_repo_page_id(registry: dict, url_hint: str) -> str:
+    """registry에서 캐싱된 repo_page_id 반환."""
+    meta = registry.get(_REPO_PAGE_KEY, {})
+    return meta.get(url_hint or "default", "")
+
+
+def set_repo_page_id(registry: dict, url_hint: str, page_id: str):
+    """repo_page_id를 registry에 캐싱."""
+    if _REPO_PAGE_KEY not in registry:
+        registry[_REPO_PAGE_KEY] = {}
+    registry[_REPO_PAGE_KEY][url_hint or "default"] = page_id
+
+
 def registry_path_for(repo_short_name: str) -> str:
     """shared-config checkout 기준 registry 파일 경로 반환."""
     return os.path.join("shared-config", "rest-api-docs", repo_short_name, "api-docs-registry.json")

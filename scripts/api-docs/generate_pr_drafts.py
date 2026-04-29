@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from lib.api_utils import (
     normalize_api_key, now_kst_display, now_kst_iso, today_kst,
     read_registry, write_registry, registry_path_for, registry_rel_for,
+    get_repo_page_id, set_repo_page_id,
 )
 from lib.dooray import create_page, delete_page, get_page, update_page, get_or_create_child_page
 from lib.git_utils import git_commit_and_push
@@ -538,9 +539,12 @@ def main():
                     update_page(dooray_api_key, wiki_id, existing_page_id, publish_title, new_content, base_url)
                     final_page_id = existing_page_id
                 else:
-                    repo_page_id = get_or_create_child_page(
-                        dooray_api_key, wiki_id, category_parent, repo_short, base_url
-                    )
+                    repo_page_id = get_repo_page_id(registry, url_hint)
+                    if not repo_page_id:
+                        repo_page_id = get_or_create_child_page(
+                            dooray_api_key, wiki_id, category_parent, repo_short, base_url
+                        )
+                        set_repo_page_id(registry, url_hint, repo_page_id)
                     final_page_id = create_page(
                         dooray_api_key, wiki_id, repo_page_id, publish_title, draft_content, base_url
                     )

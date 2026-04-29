@@ -34,6 +34,7 @@ from lib.api_utils import (
     normalize_api_key, now_kst_display, now_kst_iso,
     read_registry, write_registry, set_output,
     registry_path_for, registry_rel_for,
+    get_repo_page_id, set_repo_page_id,
 )
 from lib.dooray import (
     create_page, delete_page, get_child_pages, get_page,
@@ -307,9 +308,12 @@ def main():
         action = "updated"
     else:
         category_parent = get_category_parent(url_hint)
-        repo_page_id = get_or_create_child_page(
-            dooray_api_key, wiki_id, category_parent, repo_short, base_url
-        )
+        repo_page_id = get_repo_page_id(registry, url_hint)
+        if not repo_page_id:
+            repo_page_id = get_or_create_child_page(
+                dooray_api_key, wiki_id, category_parent, repo_short, base_url
+            )
+            set_repo_page_id(registry, url_hint, repo_page_id)
         final_page_id = create_page(
             dooray_api_key, wiki_id, repo_page_id, publish_title, clean_content, base_url
         )

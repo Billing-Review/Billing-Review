@@ -66,19 +66,27 @@ def delete_page(api_key: str, wiki_id: str, page_id: str, base_url: str):
 
 
 def get_child_pages(api_key: str, wiki_id: str, parent_page_id: str, base_url: str) -> list:
-    url = f"{base_url}/wiki/v1/wikis/{wiki_id}/pages/{parent_page_id}/children"
-    try:
-        result = dooray_request("GET", url, api_key)
-        return result.get("result", [])
-    except SystemExit:
-        return []
+    """페이지네이션을 고려해 모든 자식 페이지를 반환한다."""
+    all_children, page = [], 0
+    while True:
+        url = f"{base_url}/wiki/v1/wikis/{wiki_id}/pages/{parent_page_id}/children?page={page}&size=100"
+        try:
+            result = dooray_request("GET", url, api_key)
+        except SystemExit:
+            break
+        children = result.get("result", [])
+        all_children.extend(children)
+        if len(children) < 100:
+            break
+        page += 1
+    return all_children
 
 
 def get_or_create_child_page(api_key: str, wiki_id: str, parent_id: str,
                               name: str, base_url: str) -> str:
     """parent 하위에서 name과 일치하는 페이지를 찾거나 새로 만든다."""
     for child in get_child_pages(api_key, wiki_id, parent_id, base_url):
-        if child.get("subject", "") == name:
+        if child.get("subject", "").strip() == name.strip():
             page_id = child.get("id", "")
             print(f"[INFO] 기존 페이지 재사용: {name} (id={page_id})")
             return page_id
