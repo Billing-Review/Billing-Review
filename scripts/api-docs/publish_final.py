@@ -78,17 +78,27 @@ def main():
     wiki_id = os.environ.get("DOORAY_WIKI_ID", "")
     project_id = os.environ.get("DOORAY_PROJECT_ID", "")
     base_url = os.environ.get("DOORAY_BASE_URL", "https://api.dooray.com")
-    api_key = os.environ.get("API_KEY", "")
+    raw_api_key = os.environ.get("API_KEY", "")
     repo_name = os.environ.get("REPO_NAME", "")
     repo_short = repo_name.split("/")[-1] if repo_name else ""
 
     for var, val in {
         "DOORAY_API_KEY": dooray_api_key, "DOORAY_WIKI_ID": wiki_id,
-        "DOORAY_PROJECT_ID": project_id, "API_KEY": api_key, "REPO_NAME": repo_name,
+        "DOORAY_PROJECT_ID": project_id, "API_KEY": raw_api_key, "REPO_NAME": repo_name,
     }.items():
         if not val:
             print(f"{var} 환경 변수가 필요합니다.", file=sys.stderr)
             sys.exit(1)
+
+    # 사용자 입력이 정규화되지 않을 수 있으므로 normalize
+    parts = raw_api_key.strip().split(" ", 1)
+    if len(parts) == 2:
+        from lib.api_utils import normalize_api_key
+        api_key = normalize_api_key(parts[0], parts[1])
+    else:
+        api_key = raw_api_key
+    if api_key != raw_api_key:
+        print(f"[INFO] API Key 정규화: '{raw_api_key}' → '{api_key}'")
 
     reg_path = registry_path_for(repo_short)
     reg_rel = registry_rel_for(repo_short)
