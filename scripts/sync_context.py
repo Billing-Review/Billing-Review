@@ -2,29 +2,81 @@
 """
 billing-context AI Context 동기화 스크립트.
 각 서비스 레포의 변경을 감지하고 Claude로 ai-context를 생성/업데이트한다.
+Claude는 JSON으로 파일 내용을 출력하고, 이 스크립트가 직접 파일을 저장한다.
 """
 
 import os
+import re
 import sys
 import json
 import subprocess
 from pathlib import Path
 
 
-def run_claude(prompt: str, timeout: int = 600) -> int:
+def run_claude(prompt: str, timeout: int = 1200) -> tuple[int, str]:
+    """Claude -p로 프롬프트를 실행하고 (종료코드, stdout) 반환."""
     result = subprocess.run(
         ["claude", "-p", "--dangerously-skip-permissions", prompt],
+        capture_output=True,
+        text=True,
         timeout=timeout,
     )
-    return result.returncode
+    if result.returncode != 0:
+        print(f"    stderr: {result.stderr.strip()[:500]}")
+    return result.returncode, result.stdout
+
+
+def write_context_files(output: str, context_dir: Path) -> list[str]:
+    """Claude 출력(JSON)을 파싱해서 파일로 저장. 저장된 파일 목록 반환."""
+    try:
+        json_match = re.search(r'\[.*\]', output, re.DOTALL)
+        raw = json_match.group() if json_match else output.strip()
+        files_data = json.loads(raw)
+
+        context_dir.mkdir(parents=True, exist_ok=True)
+        written = []
+        for item in files_data:
+            file_path = context_dir / item["file"]
+            file_path.write_text(item["content"], encoding="utf-8")
+            written.append(item["file"])
+        return written
+    except (json.JSONDecodeError, KeyError) as e:
+        print(f"    JSON 파싱 실패: {e}")
+        print(f"    출력 앞부분:\n{output[:500]}")
+        return []
+
+
+OUTPUT_FORMAT = """
+반드시 아래 JSON 배열 형식으로만 출력해. JSON 외 다른 텍스트는 절대 포함하지 마.
+[
+  {"file": "파일명.md", "content": "파일 전체 내용"},
+  {"file": "파일명.json", "content": "파일 전체 내용"}
+]
+"""
+
+GENERATE_INSTRUCTIONS = """
+소스코드를 분석해서 아래 파일들을 생성해. 해당 유형이 아니면 생략해도 돼:
+- domain-overview.md : 서비스 역할, 기술스택, 아키텍처 패턴, 패키지 구조, 핵심 비즈니스 규칙
+- data-model.md      : 엔티티 관계, 필드 정의, Enum
+- api-spec.json      : REST API 엔드포인트 명세 (Controller 있는 경우)
+- job-spec.json      : Batch Job 명세 (Spring Batch 있는 경우)
+- kafka-spec.json    : Kafka/RabbitMQ 발행/구독 명세 (메시지 브로커 있는 경우)
+- external-integration.md : 외부 API 호출, FeignClient, Redis/S3 등 인프라 연동
+"""
+
+UPDATE_INSTRUCTIONS = """
+기존 ai-context와 변경된 파일을 비교해서, 변경이 필요한 파일만 업데이트해.
+변경 없는 파일은 포함하지 마.
+"""
 
 
 def get_latest_sha(full_repo: str, branch: str) -> str:
+    gh_host = os.environ.get("GITHUB_SERVER_URL", "").replace("https://", "").strip("/") or "github.com"
     result = subprocess.run(
         ["gh", "api", f"repos/{full_repo}/commits/{branch}", "--jq", ".sha"],
         capture_output=True,
         text=True,
-        env={**os.environ, "GH_HOST": os.environ.get("GITHUB_SERVER_URL", "").replace("https://", "").strip("/") or "github.com"},
+        env={**os.environ, "GH_HOST": gh_host},
     )
     if result.returncode != 0:
         print(f"    gh api 실패 (rc={result.returncode}): {result.stderr.strip()}")
@@ -75,57 +127,84 @@ def sync_repo(repo_name: str, org: str, branch: str, force: bool) -> bool:
         print(f"  ❌ {repo_name}: 클론 실패 — 스킵")
         return False
 
-    context_exists = Path(f"{repo_name}/ai-context/domain-overview.md").exists()
+    context_dir = Path(f"{repo_name}/ai-context")
+    context_exists = context_dir.exists() and any(context_dir.iterdir())
 
     if context_exists and not force:
-        print(f"  📝 부분 업데이트 실행 (기존 context 있음)")
+        print(f"  📝 부분 업데이트 실행")
         changed_files = get_changed_files(source_dir)
-        prompt = f"""\
-_source/{repo_name}/ 디렉토리에 {repo_name} 레포의 {branch} 브랜치 소스코드가 있다.
-.claude/commands/update-ai-context.md 절차에 따라
-아래 변경된 파일을 분석해서 관련 ai-context만 부분 업데이트해줘.
+        prompt = f"""{UPDATE_INSTRUCTIONS}
 
-변경된 파일 목록:
+소스코드: {source_dir}/
+기존 ai-context: {context_dir}/
+변경된 파일:
 {changed_files}
 
-소스 기준 경로: _source/{repo_name}/
-기존 ai-context 경로: {repo_name}/ai-context/
-업데이트된 파일은 {repo_name}/ai-context/ 에 저장해줘.
-완료 후 업데이트된 파일 목록을 출력해줘."""
+{OUTPUT_FORMAT}"""
     else:
         print(f"  🆕 최초 생성 실행")
-        Path(f"{repo_name}/ai-context").mkdir(parents=True, exist_ok=True)
-        prompt = f"""\
-_source/{repo_name}/ 디렉토리에 {repo_name} 레포의 {branch} 브랜치 소스코드가 있다.
-.claude/commands/generate-ai-context.md 절차에 따라
-이 레포의 ai-context를 처음부터 생성해줘.
-소스 기준 경로: _source/{repo_name}/
-생성된 파일은 {repo_name}/ai-context/ 에 저장해줘.
-완료 후 생성된 파일 목록을 출력해줘."""
+        prompt = f"""{GENERATE_INSTRUCTIONS}
 
-    rc = run_claude(prompt)
+소스코드: {source_dir}/
+
+{OUTPUT_FORMAT}"""
+
+    rc, output = run_claude(prompt)
     if rc != 0:
         print(f"  ❌ Claude 실행 실패 (종료 코드: {rc}) — SHA 저장 안 함")
         return False
 
+    written = write_context_files(output, context_dir)
+    if not written:
+        print(f"  ❌ 파일 저장 실패 — SHA 저장 안 함")
+        return False
+
+    print(f"  📄 저장된 파일: {', '.join(written)}")
     state_file.parent.mkdir(exist_ok=True)
     state_file.write_text(latest_sha)
     print(f"  ✅ {repo_name} 완료")
     return True
 
 
-def update_root_context():
+def update_root_context(repos: list[dict]) -> None:
     print("\n🌐 루트 ai-context 갱신 중...")
-    prompt = """\
-billing-context 레포 구조:
-- 각 서비스 ai-context: {서비스명}/ai-context/
-- 루트 ai-context 저장 위치: .claude/ai-context/
 
-.claude/commands/generate-root-ai-context.md 절차에 따라
-각 서비스의 ai-context를 읽어 루트 ai-context를 생성/갱신해줘.
-대상 파일: .claude/ai-context/service-map.md, dependency-graph.md, interface-contracts.json, routing-guide.md
-변경이 없는 파일은 수정하지 말 것."""
-    run_claude(prompt)
+    service_contexts = []
+    for repo in repos:
+        name = repo["name"]
+        context_dir = Path(f"{name}/ai-context")
+        if context_dir.exists():
+            files = list(context_dir.glob("*"))
+            if files:
+                service_contexts.append(f"- {name}/ai-context/ : {', '.join(f.name for f in files)}")
+
+    if not service_contexts:
+        print("  ⚠️  서비스 ai-context 없음 — 루트 갱신 스킵")
+        return
+
+    services_list = "\n".join(service_contexts)
+    prompt = f"""아래 서비스들의 ai-context를 읽어서 루트 ai-context 파일들을 생성해.
+
+서비스 목록:
+{services_list}
+
+생성할 파일:
+- service-map.md         : 전체 서비스 목록, 역할, ai-context 경로
+- dependency-graph.md    : 서비스 간 호출/이벤트 의존관계
+- interface-contracts.json : 서비스 간 공유 API·이벤트 인터페이스
+- routing-guide.md       : 업무 유형별 → 관련 서비스 매핑 가이드
+
+{OUTPUT_FORMAT}"""
+
+    rc, output = run_claude(prompt)
+    if rc != 0:
+        print(f"  ❌ 루트 context Claude 실패")
+        return
+
+    written = write_context_files(output, Path(".claude/ai-context"))
+    if written:
+        print(f"  📄 루트 저장: {', '.join(written)}")
+    print("  ✅ 루트 ai-context 완료")
 
 
 def main():
@@ -141,7 +220,7 @@ def main():
         repos = [r for r in repos if r["name"] == target_repo]
 
     if not repos:
-        print("❌ 처리할 레포가 없습니다 (repos.yml 확인 또는 repo-name 입력값 확인)")
+        print("❌ 처리할 레포가 없습니다 (repos.json 확인 또는 repo-name 입력값 확인)")
         sys.exit(1)
 
     changed_count = 0
@@ -155,7 +234,7 @@ def main():
             changed_count += 1
 
     if changed_count > 0:
-        update_root_context()
+        update_root_context(config["repos"])
 
     github_output = os.environ.get("GITHUB_OUTPUT", "")
     if github_output:
