@@ -31,6 +31,8 @@ on:
         required: false
       DOORAY_DEFAULT_PARENT_PAGE_ID:
         required: true
+      DOORAY_DRAFT_PARENT_PAGE_ID:
+        required: false
     outputs:
       page_id:
         description: "본 페이지 ID"
@@ -71,6 +73,7 @@ jobs:
           API_KEY: ${{ inputs.api_key }}
           REPO_NAME: ${{ inputs.repo_name }}
           DRAFT_PAGE_ID: ${{ inputs.draft_page_id }}
+          DOORAY_DRAFT_PARENT_PAGE_ID: ${{ secrets.DOORAY_DRAFT_PARENT_PAGE_ID }}
         run: python3 shared-config/scripts/api-docs/publish_final.py
 
       - name: Cleanup workspace

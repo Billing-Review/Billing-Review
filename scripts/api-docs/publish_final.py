@@ -35,7 +35,8 @@ from lib.api_utils import (
     registry_path_for, registry_rel_for,
 )
 from lib.dooray import (
-    create_page, delete_page, get_page, get_or_create_child_page, update_page,
+    create_page, delete_page, get_child_pages, get_page,
+    get_or_create_child_page, update_page,
 )
 from lib.git_utils import git_commit_and_push
 
@@ -64,6 +65,26 @@ def get_category_parent(url_hint: str) -> str:
     return parent
 
 
+def find_draft_page_in_dooray(dooray_api_key: str, wiki_id: str,
+                               draft_parent_id: str, base_url: str,
+                               api_key: str) -> str:
+    """Dooray draft 폴더에서 api_key와 일치하는 페이지를 찾아 page_id 반환."""
+    children = get_child_pages(dooray_api_key, wiki_id, draft_parent_id, base_url)
+    # 제목 형식: "[API Draft][신규] GET /api/v1/todos"
+    # api_key의 path 부분으로 매칭 (정규화 후 비교)
+    from lib.api_utils import normalize_api_key
+    parts = api_key.split(" ", 1)
+    norm_path = parts[1].lower() if len(parts) == 2 else api_key.lower()
+
+    for child in children:
+        title = child.get("subject", "").lower()
+        if norm_path in title:
+            page_id = child.get("id", "")
+            print(f"[INFO] Dooray draft에서 페이지 발견: {child.get('subject')} (id={page_id})")
+            return page_id
+    return ""
+
+
 def prepend_history(existing_content: str, api_key: str) -> str:
     """수정 시 상단에 이력 라인 추가."""
     history_line = f"> 수정: `{api_key}` ({now_kst_display()})\n"
@@ -77,10 +98,12 @@ def main():
     dooray_api_key = os.environ.get("DOORAY_API_KEY", "")
     wiki_id = os.environ.get("DOORAY_WIKI_ID", "")
     project_id = os.environ.get("DOORAY_PROJECT_ID", "")
+    draft_parent_id = os.environ.get("DOORAY_DRAFT_PARENT_PAGE_ID", "")
     base_url = os.environ.get("DOORAY_BASE_URL", "https://api.dooray.com")
     raw_api_key = os.environ.get("API_KEY", "")
     repo_name = os.environ.get("REPO_NAME", "")
     repo_short = repo_name.split("/")[-1] if repo_name else ""
+    # 워크플로우가 내부적으로 전달하는 값 (사용자 입력 불필요)
     fallback_draft_page_id = os.environ.get("DRAFT_PAGE_ID", "")
 
     for var, val in {
@@ -107,20 +130,24 @@ def main():
 
     entry = registry.get(api_key)
 
-    # registry에 없으면 fallback_draft_page_id로 신규 entry 구성
+    # registry에 없으면 자동으로 draft 탐색 후 신규 entry 구성
     if not entry or not isinstance(entry, dict):
-        if not fallback_draft_page_id:
+        print(f"[INFO] registry에 '{api_key}' 없음 — draft 자동 탐색 중...")
+        found_draft_id = (
+            fallback_draft_page_id
+            or (find_draft_page_in_dooray(dooray_api_key, wiki_id, draft_parent_id, base_url, api_key)
+                if draft_parent_id else "")
+        )
+        if not found_draft_id:
             print(
-                f"[ERROR] registry에 '{api_key}' 항목이 없고 DRAFT_PAGE_ID도 없습니다.\n"
-                f"  → 수동 실행 시 draft_page_id 입력값을 함께 제공하세요.",
+                f"[ERROR] draft를 찾을 수 없습니다. api-doc-trigger.yml을 먼저 실행해 draft를 생성하세요.",
                 file=sys.stderr,
             )
             sys.exit(1)
-        print(f"[INFO] registry 미등록 — DRAFT_PAGE_ID 로 신규 entry 생성: {api_key}")
         entry = {
             "status": "draft",
             "page_id": None,
-            "draft_page_id": fallback_draft_page_id,
+            "draft_page_id": found_draft_id,
             "url_hint": "",
             "created_at": now_kst_iso(),
             "updated_at": now_kst_iso(),
@@ -130,7 +157,7 @@ def main():
 
     draft_page_id = entry.get("draft_page_id") or fallback_draft_page_id
     if not draft_page_id:
-        print(f"[ERROR] draft_page_id가 없습니다. 먼저 draft를 생성하세요.", file=sys.stderr)
+        print(f"[ERROR] draft_page_id가 없습니다. api-doc-trigger.yml을 먼저 실행하세요.", file=sys.stderr)
         sys.exit(1)
 
     url_hint = entry.get("url_hint", "")
