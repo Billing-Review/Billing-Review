@@ -14,7 +14,7 @@ on:
         type: boolean
         default: false
     secrets:
-      AI_CONTEXT_TOKEN:
+      ORG_GITHUB_TOKEN:
         required: true
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: ${{ github.repository }}
-          token: ${{ secrets.AI_CONTEXT_TOKEN }}
+          token: ${{ secrets.ORG_GITHUB_TOKEN }}
           fetch-depth: 0
 
       - name: 📥 Checkout shared-workflows
@@ -37,7 +37,7 @@ jobs:
         with:
           repository: ${{ github.repository_owner }}/shared-workflows
           path: .shared-config
-          token: ${{ secrets.AI_CONTEXT_TOKEN }}
+          token: ${{ secrets.ORG_GITHUB_TOKEN }}
 
       - name: 🔑 Validate Claude CLI
         run: |
@@ -50,7 +50,7 @@ jobs:
       - name: 🔄 Sync AI Context
         id: sync
         env:
-          GH_TOKEN: ${{ secrets.AI_CONTEXT_TOKEN }}
+          GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           INPUT_REPO: ${{ inputs.repo-name }}
           INPUT_FORCE: ${{ inputs.force }}
