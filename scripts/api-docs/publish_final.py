@@ -75,7 +75,7 @@ _DRAFT_META_RE = re.compile(
 # ── 코드 기반 문서 생성 ───────────────────────────────────────────────────────
 
 def _normalize_path(url: str) -> str:
-    url = re.sub(r"\{[^}]+\}", "{param}", url)
+    url = re.sub(r"\{([^}]+)\}", lambda m: "{" + m.group(1).lower() + "}", url)
     return "/" + url.strip("/").lower()
 
 

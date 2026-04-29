@@ -62,7 +62,7 @@ EXTERNAL_IMPORT_PREFIXES = (
 
 
 def _normalize_path(url: str) -> str:
-    url = re.sub(r"\{[^}]+\}", "{param}", url)
+    url = re.sub(r"\{([^}]+)\}", lambda m: "{" + m.group(1).lower() + "}", url)
     return "/" + url.strip("/").lower()
 
 

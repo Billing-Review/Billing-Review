@@ -9,11 +9,11 @@ KST = timezone(timedelta(hours=9))
 def normalize_api_key(method: str, path: str) -> str:
     """API 키 정규화: 'METHOD /normalized/path' 형식으로 통일.
 
-    - path variable {id}, {orderId} 등 → {param}
+    - path variable {id}, {orderId} 등 → 변수명 그대로 소문자로만 통일
     - 소문자 통일
     - trailing slash 제거
     """
-    path = re.sub(r"\{[^}]+\}", "{param}", path)
+    path = re.sub(r"\{([^}]+)\}", lambda m: "{" + m.group(1).lower() + "}", path)
     path = "/" + path.strip("/").lower()
     return f"{method.upper()} {path}"
 

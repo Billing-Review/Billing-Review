@@ -191,7 +191,7 @@ def filter_diff_for_file(full_diff: str, filepath: str) -> str:
 # ── Controller 파일 탐색 ──────────────────────────────────────────────────────
 
 def _normalize_path(url: str) -> str:
-    url = re.sub(r"\{[^}]+\}", "{param}", url)
+    url = re.sub(r"\{([^}]+)\}", lambda m: "{" + m.group(1).lower() + "}", url)
     return "/" + url.strip("/").lower()
 
 
