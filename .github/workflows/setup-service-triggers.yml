@@ -1,0 +1,77 @@
+name: 🔧 Setup Service Triggers (One-time)
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo-name:
+        description: '특정 레포만 설정 (빈값이면 repos.json 전체)'
+        required: false
+        default: ''
+
+jobs:
+  setup:
+    runs-on:
+      group: billing-dev
+
+    steps:
+      - name: 🔑 Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.CODE_REVIEW_APP_ID }}
+          private-key: ${{ secrets.CODE_REVIEW_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: 📥 Checkout billing-context
+        uses: actions/checkout@v5
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: 🔧 Add trigger workflows to service repos
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          INPUT_REPO: ${{ inputs.repo-name }}
+        run: |
+          WORKFLOW_CONTENT=$(cat <<'YAML'
+name: Sync AI Context
+
+on:
+  push:
+    branches: [develop]
+
+jobs:
+  sync:
+    uses: dev-billing/shared-workflows/.github/workflows/sync-ai-context.yml@main
+    with:
+      repo-name: ${{ github.event.repository.name }}
+    secrets: inherit
+YAML
+)
+          ENCODED=$(echo "$WORKFLOW_CONTENT" | base64 -w 0)
+          ORG=$(jq -r '.org' repos.json)
+
+          REPOS=$(jq -r '.repos[].name' repos.json)
+          if [ -n "$INPUT_REPO" ]; then
+            REPOS="$INPUT_REPO"
+          fi
+
+          for REPO in $REPOS; do
+            echo "=== $REPO ==="
+            SHA=$(gh api repos/$ORG/$REPO/contents/.github/workflows/sync-ai-context.yml \
+              --jq '.sha' 2>/dev/null || echo "")
+
+            if [ -n "$SHA" ]; then
+              gh api repos/$ORG/$REPO/contents/.github/workflows/sync-ai-context.yml \
+                --method PUT \
+                --field message="chore: ai-context 자동 동기화 트리거 추가" \
+                --field content="$ENCODED" \
+                --field sha="$SHA" \
+                --jq '.commit.sha' && echo "✅ $REPO 업데이트 완료" || echo "❌ $REPO 실패"
+            else
+              gh api repos/$ORG/$REPO/contents/.github/workflows/sync-ai-context.yml \
+                --method PUT \
+                --field message="chore: ai-context 자동 동기화 트리거 추가" \
+                --field content="$ENCODED" \
+                --jq '.commit.sha' && echo "✅ $REPO 추가 완료" || echo "❌ $REPO 실패"
+            fi
+          done
