@@ -26,7 +26,6 @@ jobs:
           app-id: ${{ secrets.CODE_REVIEW_APP_ID }}
           private-key: ${{ secrets.CODE_REVIEW_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
-          repositories: billing-context, shared-workflows
 
       - name: 🧹 Clean workspace
         run: |
