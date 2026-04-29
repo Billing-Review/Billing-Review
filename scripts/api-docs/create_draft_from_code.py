@@ -179,7 +179,8 @@ def main():
     wiki_id = os.environ.get("DOORAY_WIKI_ID", "")
     project_id = os.environ.get("DOORAY_PROJECT_ID", "")
     draft_parent_id = os.environ.get("DOORAY_DRAFT_PARENT_PAGE_ID", "")
-    base_url = os.environ.get("DOORAY_BASE_URL", "https://nhnent.dooray.com")
+    base_url = os.environ.get("DOORAY_BASE_URL", "https://api.dooray.com")
+    web_url = os.environ.get("DOORAY_WEB_URL", "https://nhnent.dooray.com")
     repo_short = repo_name.split("/")[-1] if repo_name else ""
 
     for var, val in {
@@ -251,7 +252,7 @@ def main():
         f"{doc_content}"
     )
     draft_page_id = create_page(dooray_api_key, wiki_id, draft_parent_id, title, full_content, base_url)
-    page_url = f"{base_url}/wiki/{project_id}/{draft_page_id}"
+    page_url = f"{web_url}/wiki/{project_id}/{draft_page_id}"
 
     # 7. registry 갱신
     now = now_kst_iso()

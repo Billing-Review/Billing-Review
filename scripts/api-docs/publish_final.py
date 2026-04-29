@@ -242,7 +242,8 @@ def main():
     wiki_id = os.environ.get("DOORAY_WIKI_ID", "")
     project_id = os.environ.get("DOORAY_PROJECT_ID", "")
     draft_parent_id = os.environ.get("DOORAY_DRAFT_PARENT_PAGE_ID", "")
-    base_url = os.environ.get("DOORAY_BASE_URL", "https://nhnent.dooray.com")
+    base_url = os.environ.get("DOORAY_BASE_URL", "https://api.dooray.com")
+    web_url = os.environ.get("DOORAY_WEB_URL", "https://nhnent.dooray.com")
     raw_api_key = os.environ.get("API_KEY", "")
     repo_name = os.environ.get("REPO_NAME", "")
     branch = os.environ.get("BRANCH", "master")
@@ -340,7 +341,7 @@ def main():
     if draft_page_id and generated_content is None:
         delete_page(dooray_api_key, wiki_id, draft_page_id, base_url)
 
-    page_url = f"{base_url}/wiki/{project_id}/{final_page_id}"
+    page_url = f"{web_url}/wiki/{project_id}/{final_page_id}"
     set_output("page_id", final_page_id)
     set_output("page_url", page_url)
 

@@ -340,7 +340,7 @@ PR 설명: {pr_body[:1000] if pr_body else "(없음)"}
 # ── Dooray draft 생성 ─────────────────────────────────────────────────────────
 
 def create_draft(dooray_api_key: str, wiki_id: str, draft_parent_id: str,
-                 base_url: str, project_id: str,
+                 base_url: str, web_url: str, project_id: str,
                  api_key: str, title: str, doc_content: str, url_hint: str,
                  registry: dict) -> str:
     # 기존 draft가 있으면 삭제
@@ -355,7 +355,7 @@ def create_draft(dooray_api_key: str, wiki_id: str, draft_parent_id: str,
     )
 
     page_id = create_page(dooray_api_key, wiki_id, draft_parent_id, title, full_content, base_url)
-    page_url = f"{base_url}/wiki/{project_id}/{page_id}"
+    page_url = f"{web_url}/wiki/{project_id}/{page_id}"
     print(f"[INFO] Draft 생성: {api_key} → {page_url}")
     return page_id, page_url
 
@@ -407,7 +407,8 @@ def main():
     wiki_id = os.environ.get("DOORAY_WIKI_ID", "")
     project_id = os.environ.get("DOORAY_PROJECT_ID", "")
     draft_parent_id = os.environ.get("DOORAY_DRAFT_PARENT_PAGE_ID", "")
-    base_url = os.environ.get("DOORAY_BASE_URL", "https://nhnent.dooray.com")
+    base_url = os.environ.get("DOORAY_BASE_URL", "https://api.dooray.com")
+    web_url = os.environ.get("DOORAY_WEB_URL", "https://nhnent.dooray.com")
     repo_short = repo_name.split("/")[-1] if repo_name else ""
 
     for var, val in {
@@ -508,7 +509,7 @@ def main():
         title = f"{prefix} {method} {path}"
 
         page_id, page_url = create_draft(
-            dooray_api_key, wiki_id, draft_parent_id, base_url, project_id,
+            dooray_api_key, wiki_id, draft_parent_id, base_url, web_url, project_id,
             api_key, title, doc_content, url_hint, registry,
         )
 
