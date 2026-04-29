@@ -21,11 +21,12 @@ jobs:
     steps:
       - name: 🔑 Generate GitHub App Token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ secrets.CODE_REVIEW_APP_ID }}
           private-key: ${{ secrets.CODE_REVIEW_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          repositories: billing-context, shared-workflows
 
       - name: 📥 Checkout billing-context
         uses: actions/checkout@v5
