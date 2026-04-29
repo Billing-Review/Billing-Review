@@ -243,11 +243,7 @@ def main():
     if isinstance(existing, dict) and existing.get("draft_page_id"):
         delete_page(dooray_api_key, wiki_id, existing["draft_page_id"], base_url)
 
-    # URL segment에서 제목용 그룹명 추출
-    segments = [s for s in api_urls[0].strip("/").split("/")
-                if s and not re.match(r"^(api|v\d+(\.\d+)?)$", s)]
-    group_name = segments[0].capitalize() if segments else "API"
-    title = f"[API Draft] {http_method} {group_name} API 명세"
+    title = f"[API Draft] {api_key}"
 
     full_content = (
         f"> **[Draft]** 자동 생성된 API 문서입니다. 검토 후 publish 하세요.\n"
