@@ -66,6 +66,8 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           grep -qxF '_source/' .gitignore 2>/dev/null || echo '_source/' >> .gitignore
+          grep -qxF '.shared-config/' .gitignore 2>/dev/null || echo '.shared-config/' >> .gitignore
+          git rm --cached .shared-config 2>/dev/null || true
 
           git add -A
 
