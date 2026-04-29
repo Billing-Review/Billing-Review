@@ -9,13 +9,13 @@
     "deprecated_at": null
   },
   "GET /external/api/todo-list/find": {
-    "status": "draft",
-    "draft_page_id": "4321277011505471140",
+    "status": "published",
+    "draft_page_id": null,
     "url_hint": "external",
     "created_at": "2026-04-29T14:26:02+09:00",
-    "updated_at": "2026-04-29T14:26:02+09:00",
+    "updated_at": "2026-04-29T14:33:39+09:00",
     "deprecated_at": null,
-    "page_id": null
+    "page_id": "4321280844692964330"
   },
   "GET /external/api/todo-list/{param}": {
     "status": "draft",
