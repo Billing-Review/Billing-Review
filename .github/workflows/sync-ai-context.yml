@@ -31,6 +31,9 @@ jobs:
           repository: ${{ github.repository_owner }}/shared-workflows
           path: .shared-config
 
+      - name: 🐍 Install Python dependencies
+        run: pip3 install pyyaml --quiet
+
       - name: 🔑 Validate Claude CLI
         run: |
           if ! claude --version > /dev/null 2>&1; then
