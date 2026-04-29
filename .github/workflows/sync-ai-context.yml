@@ -28,6 +28,11 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: billing-context, shared-workflows
 
+      - name: 🧹 Clean workspace
+        run: |
+          rm -rf .shared-config _source
+          git clean -ffdx 2>/dev/null || true
+
       - name: 📥 Checkout billing-context
         uses: actions/checkout@v5
         with:
