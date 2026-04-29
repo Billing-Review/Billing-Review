@@ -25,13 +25,15 @@ def get_latest_sha(full_repo: str, branch: str) -> str:
         ["gh", "api", f"repos/{full_repo}/commits/{branch}", "--jq", ".sha"],
         capture_output=True,
         text=True,
+        env={**os.environ, "GH_HOST": os.environ.get("GITHUB_SERVER_URL", "").replace("https://", "").strip("/") or "github.com"},
     )
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
 def clone_repo(full_repo: str, branch: str, target_dir: str) -> bool:
     gh_token = os.environ.get("GH_TOKEN", "")
-    url = f"https://x-access-token:{gh_token}@github.com/{full_repo}.git"
+    server = os.environ.get("GITHUB_SERVER_URL", "https://github.com").rstrip("/").replace("https://", "")
+    url = f"https://x-access-token:{gh_token}@{server}/{full_repo}.git"
     result = subprocess.run(
         ["git", "clone", "--depth=5", f"--branch={branch}", url, target_dir],
     )

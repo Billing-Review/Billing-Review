@@ -71,7 +71,8 @@ jobs:
 
           git diff --staged --quiet && echo "변경 없음 — 커밋 스킵" && exit 0
 
-          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          SERVER=$(echo "$GITHUB_SERVER_URL" | sed 's|https://||')
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@${SERVER}/${{ github.repository }}.git"
 
           CHANGED=$(git diff --staged --name-only | grep '/ai-context/' | cut -d'/' -f1 | sort -u | tr '\n' ',' | sed 's/,$//')
           git commit -m "chore: ai-context 자동 동기화 [skip ci]
