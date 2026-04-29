@@ -21,6 +21,6 @@ def git_commit_and_push(repo_dir: str, files: list, message: str):
         return
     push = run(["git", "push"])
     if push.returncode != 0:
-        print(f"[WARN] registry push 실패: {push.stderr}")
-    else:
-        print("[INFO] registry 커밋 완료")
+        print(f"[ERROR] registry push 실패: {push.stderr}", file=__import__("sys").stderr)
+        __import__("sys").exit(1)
+    print("[INFO] registry 커밋 완료")

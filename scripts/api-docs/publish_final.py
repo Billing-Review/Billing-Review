@@ -81,6 +81,7 @@ def main():
     raw_api_key = os.environ.get("API_KEY", "")
     repo_name = os.environ.get("REPO_NAME", "")
     repo_short = repo_name.split("/")[-1] if repo_name else ""
+    fallback_draft_page_id = os.environ.get("DRAFT_PAGE_ID", "")
 
     for var, val in {
         "DOORAY_API_KEY": dooray_api_key, "DOORAY_WIKI_ID": wiki_id,
@@ -105,11 +106,29 @@ def main():
     registry = read_registry(reg_path)
 
     entry = registry.get(api_key)
-    if not entry or not isinstance(entry, dict):
-        print(f"[ERROR] registry에 '{api_key}' 항목이 없습니다.", file=sys.stderr)
-        sys.exit(1)
 
-    draft_page_id = entry.get("draft_page_id")
+    # registry에 없으면 fallback_draft_page_id로 신규 entry 구성
+    if not entry or not isinstance(entry, dict):
+        if not fallback_draft_page_id:
+            print(
+                f"[ERROR] registry에 '{api_key}' 항목이 없고 DRAFT_PAGE_ID도 없습니다.\n"
+                f"  → 수동 실행 시 draft_page_id 입력값을 함께 제공하세요.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        print(f"[INFO] registry 미등록 — DRAFT_PAGE_ID 로 신규 entry 생성: {api_key}")
+        entry = {
+            "status": "draft",
+            "page_id": None,
+            "draft_page_id": fallback_draft_page_id,
+            "url_hint": "",
+            "created_at": now_kst_iso(),
+            "updated_at": now_kst_iso(),
+            "deprecated_at": None,
+        }
+        registry[api_key] = entry
+
+    draft_page_id = entry.get("draft_page_id") or fallback_draft_page_id
     if not draft_page_id:
         print(f"[ERROR] draft_page_id가 없습니다. 먼저 draft를 생성하세요.", file=sys.stderr)
         sys.exit(1)
