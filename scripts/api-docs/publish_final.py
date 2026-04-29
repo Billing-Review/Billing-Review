@@ -44,8 +44,8 @@ from lib.git_utils import git_commit_and_push
 PROMPT_DIR = "shared-config/rest-api-docs"
 SYSTEM_PROMPT_FILE = f"{PROMPT_DIR}/docs-writer.md"
 TEMPLATE_FILE = f"{PROMPT_DIR}/api-docs-template.md"
-CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-opus-4-6")
-CLAUDE_TIMEOUT = int(os.environ.get("CLAUDE_TIMEOUT", "180"))
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
+CLAUDE_TIMEOUT = int(os.environ.get("CLAUDE_TIMEOUT", "300"))
 MAX_FILE_CHARS = 8000
 
 CTRL_PATTERN = re.compile(r"(Controller|Handler|Router)\.(java|kt|go|py|ts|js)$")
