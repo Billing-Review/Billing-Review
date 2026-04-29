@@ -1,1 +1,20 @@
-{}
+{
+  "GET /external/api/todo-list": {
+    "status": "draft",
+    "draft_page_id": "4321325715082142417",
+    "url_hint": "external",
+    "created_at": "2026-04-29T16:02:48+09:00",
+    "updated_at": "2026-04-29T16:02:48+09:00",
+    "deprecated_at": null,
+    "page_id": null
+  },
+  "POST /external/api/todo-list/create": {
+    "status": "draft",
+    "draft_page_id": "4321325925108504473",
+    "url_hint": "external",
+    "created_at": "2026-04-29T16:03:13+09:00",
+    "updated_at": "2026-04-29T16:03:13+09:00",
+    "deprecated_at": null,
+    "page_id": null
+  }
+}
