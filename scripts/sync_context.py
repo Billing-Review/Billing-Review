@@ -12,9 +12,8 @@ from pathlib import Path
 
 
 def run_claude(prompt: str, timeout: int = 600) -> int:
-    """Claude --non-interactive로 프롬프트를 실행한다. 종료 코드를 반환한다."""
     result = subprocess.run(
-        ["claude", "--non-interactive", prompt],
+        ["claude", "-p", "--dangerously-skip-permissions", prompt],
         timeout=timeout,
     )
     return result.returncode
