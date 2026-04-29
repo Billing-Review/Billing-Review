@@ -1,0 +1,82 @@
+name: 🔄 Sync AI Context (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      repo-name:
+        description: '특정 레포만 업데이트 (빈값이면 변경된 전체 레포)'
+        required: false
+        type: string
+        default: ''
+      force:
+        description: '변경 여부 무시하고 강제 전체 재생성'
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      AI_CONTEXT_TOKEN:
+        required: true
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+jobs:
+  sync:
+    runs-on:
+      group: billing-dev
+
+    steps:
+      - name: 📥 Checkout billing-context
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.repository }}
+          token: ${{ secrets.AI_CONTEXT_TOKEN }}
+          fetch-depth: 0
+
+      - name: 📥 Checkout shared-workflows
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.repository_owner }}/shared-workflows
+          path: .shared-config
+          token: ${{ secrets.AI_CONTEXT_TOKEN }}
+
+      - name: 🔑 Validate Claude CLI
+        run: |
+          if ! claude --version > /dev/null 2>&1; then
+            echo "::error::Claude Code CLI가 이 Runner에 설치되어 있지 않습니다."
+            exit 1
+          fi
+          echo "✅ Claude CLI 확인됨: $(claude --version)"
+
+      - name: 🔄 Sync AI Context
+        id: sync
+        env:
+          GH_TOKEN: ${{ secrets.AI_CONTEXT_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          INPUT_REPO: ${{ inputs.repo-name }}
+          INPUT_FORCE: ${{ inputs.force }}
+        run: python3 .shared-config/scripts/sync_context.py
+
+      - name: 💾 Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          grep -qxF '_source/' .gitignore 2>/dev/null || echo '_source/' >> .gitignore
+
+          git add repos.yml state/ .claude/ai-context/ .gitignore
+          python3 -c "
+          import yaml, subprocess
+          with open('repos.yml') as f:
+              config = yaml.safe_load(f)
+          for r in config['repos']:
+              subprocess.run(['git', 'add', f\"{r['name']}/ai-context/\"], check=False)
+          "
+
+          git diff --staged --quiet && echo "변경 없음 — 커밋 스킵" && exit 0
+
+          CHANGED=\$(git diff --staged --name-only | grep '/ai-context/' | cut -d'/' -f1 | sort -u | tr '\n' ',' | sed 's/,$//')
+          git commit -m "chore: ai-context 자동 동기화 [skip ci]
+
+          업데이트된 레포: \${CHANGED:-root}
+          트리거: ${{ github.event_name }} / ${{ github.sha }}"
+          git push
