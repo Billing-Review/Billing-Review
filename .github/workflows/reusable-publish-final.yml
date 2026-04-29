@@ -11,6 +11,11 @@ on:
         required: true
         type: string
         description: "서비스 저장소 이름 (org/repo)"
+      branch:
+        required: false
+        type: string
+        default: "master"
+        description: "코드를 읽을 브랜치 (draft 없어 코드에서 직접 생성 시 사용)"
       draft_page_id:
         required: false
         type: string
@@ -53,6 +58,13 @@ jobs:
       - name: Clean workspace
         run: find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
 
+      - name: Checkout service repo (Controller 탐색용)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repo_name }}
+          ref: ${{ inputs.branch }}
+          token: ${{ secrets.ORG_GITHUB_TOKEN }}
+
       - name: Checkout shared-workflows (스크립트 파일용)
         uses: actions/checkout@v4
         with:
@@ -72,6 +84,7 @@ jobs:
           ORG_GITHUB_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
           API_KEY: ${{ inputs.api_key }}
           REPO_NAME: ${{ inputs.repo_name }}
+          BRANCH: ${{ inputs.branch }}
           DRAFT_PAGE_ID: ${{ inputs.draft_page_id }}
           DOORAY_DRAFT_PARENT_PAGE_ID: ${{ secrets.DOORAY_DRAFT_PARENT_PAGE_ID }}
         run: python3 shared-config/scripts/api-docs/publish_final.py
