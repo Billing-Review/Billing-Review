@@ -426,6 +426,33 @@ def main():
         print("::notice::Controller 변경사항 없음 — 스킵")
         return
 
+    # ── delete_draft 모드: PR close(미merge) 시 draft 삭제 ───────────────────
+    if mode == "delete_draft":
+        deleted_drafts = []
+        for api in changed:
+            api_key = normalize_api_key(api["method"], api["path"])
+            entry = registry.get(api_key, {})
+            draft_id = entry.get("draft_page_id") if isinstance(entry, dict) else None
+            if draft_id:
+                delete_page(dooray_api_key, wiki_id, draft_id, base_url)
+                registry[api_key] = {**entry, "draft_page_id": None,
+                                     "status": entry.get("status", "draft")}
+                deleted_drafts.append(api_key)
+                print(f"[INFO] Draft 삭제: {api_key}")
+        if deleted_drafts:
+            write_registry(reg_path, registry)
+            git_commit_and_push(
+                "shared-config", [reg_rel],
+                f"chore: pr#{pr_number} draft 삭제 (PR closed) - {repo_short} [skip ci]",
+            )
+            post_pr_comment(pr_number, repo_name,
+                "## API 문서 Draft 삭제 완료\n\n"
+                "PR이 merge 없이 닫혀 아래 Draft가 삭제되었습니다.\n\n"
+                + "\n".join(f"- `{k}`" for k in deleted_drafts))
+        else:
+            print("삭제할 draft 없음")
+        return
+
     # mode 필터
     if mode == "draft":
         deleted = []

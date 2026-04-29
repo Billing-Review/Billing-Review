@@ -15,7 +15,7 @@ on:
         required: false
         type: string
         default: "all"
-        description: "draft=변경API draft생성만, deprecated=삭제API처리만, all=둘다"
+        description: "draft=변경API draft생성, deprecated=삭제API처리, all=둘다, delete_draft=draft삭제"
     secrets:
       ORG_GITHUB_TOKEN:
         required: true
