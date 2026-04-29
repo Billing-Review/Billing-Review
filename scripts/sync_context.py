@@ -6,8 +6,8 @@ billing-context AI Context 동기화 스크립트.
 
 import os
 import sys
+import json
 import subprocess
-import yaml
 from pathlib import Path
 
 
@@ -125,8 +125,8 @@ billing-context 레포 구조:
 
 
 def main():
-    with open("repos.yml") as f:
-        config = yaml.safe_load(f)
+    with open("repos.json") as f:
+        config = json.load(f)
 
     org = config["org"]
     target_repo = os.environ.get("INPUT_REPO", "").strip()

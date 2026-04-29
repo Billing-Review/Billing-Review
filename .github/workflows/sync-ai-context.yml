@@ -31,9 +31,6 @@ jobs:
           repository: ${{ github.repository_owner }}/shared-workflows
           path: .shared-config
 
-      - name: 🐍 Install Python dependencies
-        run: pip3 install pyyaml --quiet
-
       - name: 🔑 Validate Claude CLI
         run: |
           if ! claude --version > /dev/null 2>&1; then
@@ -60,10 +57,10 @@ jobs:
 
           grep -qxF '_source/' .gitignore 2>/dev/null || echo '_source/' >> .gitignore
 
-          git add repos.yml state/ .claude/ai-context/ .gitignore
+          git add repos.json state/ .claude/ai-context/ .gitignore
           python3 -c "
           import yaml, subprocess
-          with open('repos.yml') as f:
+          with open('repos.json') as f:
               config = yaml.safe_load(f)
           for r in config['repos']:
               subprocess.run(['git', 'add', f\"{r['name']}/ai-context/\"], check=False)
