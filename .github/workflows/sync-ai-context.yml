@@ -13,11 +13,6 @@ on:
         required: false
         type: boolean
         default: false
-    secrets:
-      ORG_GITHUB_TOKEN:
-        required: true
-      CLAUDE_CODE_OAUTH_TOKEN:
-        required: true
 
 jobs:
   sync:
