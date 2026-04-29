@@ -105,7 +105,8 @@ _source/{repo_name}/ 디렉토리에 {repo_name} 레포의 {branch} 브랜치 �
 
     rc = run_claude(prompt)
     if rc != 0:
-        print(f"  ⚠️  Claude 실행 종료 코드: {rc}")
+        print(f"  ❌ Claude 실행 실패 (종료 코드: {rc}) — SHA 저장 안 함")
+        return False
 
     state_file.parent.mkdir(exist_ok=True)
     state_file.write_text(latest_sha)
