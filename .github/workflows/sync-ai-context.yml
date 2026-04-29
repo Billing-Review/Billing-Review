@@ -57,14 +57,7 @@ jobs:
 
           grep -qxF '_source/' .gitignore 2>/dev/null || echo '_source/' >> .gitignore
 
-          git add repos.json state/ .claude/ai-context/ .gitignore
-          python3 -c "
-          import yaml, subprocess
-          with open('repos.json') as f:
-              config = yaml.safe_load(f)
-          for r in config['repos']:
-              subprocess.run(['git', 'add', f\"{r['name']}/ai-context/\"], check=False)
-          "
+          git add -A
 
           git diff --staged --quiet && echo "변경 없음 — 커밋 스킵" && exit 0
 
