@@ -190,6 +190,67 @@ def filter_diff_for_file(full_diff: str, filepath: str) -> str:
 
 # ── Controller 파일 탐색 ──────────────────────────────────────────────────────
 
+def _normalize_path(url: str) -> str:
+    url = re.sub(r"\{[^}]+\}", "{param}", url)
+    return "/" + url.strip("/").lower()
+
+
+def extract_method_for_api(filepath: str, http_method: str, target_path: str) -> str:
+    """컨트롤러에서 특정 API 메서드 블록만 추출 (클래스 헤더 포함)."""
+    try:
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+    except OSError:
+        return content[:MAX_FILE_CHARS] if content else ""
+
+    lines = content.splitlines()
+    class_m = _CLASS_MAPPING_RE.search(content)
+    class_prefix = class_m.group(1).rstrip("/") if class_m else ""
+    norm_target = _normalize_path(target_path)
+
+    # 대상 @*Mapping 어노테이션 라인 탐색
+    mapping_idx = None
+    for i, line in enumerate(lines):
+        for verb, path in extract_mappings_from_text(line.strip(), class_prefix):
+            sep = "/" if path and not path.startswith("/") else ""
+            if verb.upper() == http_method.upper() and _normalize_path(class_prefix + sep + path) == norm_target:
+                mapping_idx = i
+                break
+        if mapping_idx is not None:
+            break
+
+    if mapping_idx is None:
+        return content[:MAX_FILE_CHARS]
+
+    # 앞쪽 @ 어노테이션까지 포함
+    start = mapping_idx
+    while start > 0 and lines[start - 1].strip().startswith("@"):
+        start -= 1
+
+    # 중괄호 카운팅으로 메서드 끝 탐색
+    depth, found, end = 0, False, start
+    for i in range(start, len(lines)):
+        depth += lines[i].count("{") - lines[i].count("}")
+        if depth > 0:
+            found = True
+        if found and depth <= 0:
+            end = i
+            break
+
+    method_block = "\n".join(lines[start:end + 1])
+
+    # 클래스 헤더 (package + imports + 클래스 선언까지)
+    header_lines = []
+    for line in lines:
+        header_lines.append(line)
+        stripped = line.strip()
+        if stripped.startswith("public class") or stripped.startswith("class "):
+            header_lines.append("    // ... (other methods omitted) ...")
+            break
+
+    return "\n".join(header_lines) + "\n\n    " + method_block.replace("\n", "\n    ") + "\n}"
+
+
 def find_related_files(controller_paths: list) -> list:
     import_pattern = re.compile(r'import\s+([\w.]+);')
     related, seen = [], set(controller_paths)
@@ -236,8 +297,11 @@ def infer_url_hint(path: str, code_content: str) -> str:
 def generate_doc(method: str, path: str, ctrl_file: str, full_diff: str,
                  pr_title: str, pr_body: str, existing_doc: str,
                  system_prompt: str, template: str) -> str:
+    method_code = extract_method_for_api(ctrl_file, method, path)
     related = find_related_files([ctrl_file])
-    code_content = read_files([ctrl_file], "Controller") + "\n\n" + read_files(related, "참조")
+    code_content = f"### [Controller] {ctrl_file}\n```java\n{method_code}\n```"
+    if related:
+        code_content += "\n\n" + read_files(related, "참조")
     file_diff = filter_diff_for_file(full_diff, ctrl_file)
 
     update_section = ""
@@ -249,6 +313,8 @@ def generate_doc(method: str, path: str, ctrl_file: str, full_diff: str,
 """
 
     prompt = f"""{system_prompt}
+
+**[중요] [{method}] {path} 엔드포인트 하나에 대한 API 문서만 작성하세요. 같은 컨트롤러의 다른 엔드포인트는 포함하지 마세요.**
 
 다음은 [{method}] {path} API에 대한 코드와 PR 변경사항입니다.
 
