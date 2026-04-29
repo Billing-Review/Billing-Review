@@ -19,10 +19,18 @@ jobs:
     runs-on:
       group: billing-dev
     steps:
+      - name: 🔑 Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.CODE_REVIEW_APP_ID }}
+          private-key: ${{ secrets.CODE_REVIEW_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - name: 📥 Checkout billing-context
         uses: actions/checkout@v5
         with:
-          token: ${{ secrets.ORG_GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
 
       - name: 📥 Checkout shared-workflows
@@ -30,7 +38,7 @@ jobs:
         with:
           repository: ${{ github.repository_owner }}/shared-workflows
           path: .shared-config
-          token: ${{ secrets.ORG_GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: 🔑 Validate Claude CLI
         run: |
@@ -43,7 +51,7 @@ jobs:
       - name: 🔄 Sync AI Context
         id: sync
         env:
-          GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           INPUT_REPO: ${{ inputs.repo-name }}
           INPUT_FORCE: ${{ inputs.force }}
@@ -51,7 +59,7 @@ jobs:
 
       - name: 💾 Commit
         env:
-          GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
