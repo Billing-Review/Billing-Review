@@ -27,6 +27,8 @@ def get_latest_sha(full_repo: str, branch: str) -> str:
         text=True,
         env={**os.environ, "GH_HOST": os.environ.get("GITHUB_SERVER_URL", "").replace("https://", "").strip("/") or "github.com"},
     )
+    if result.returncode != 0:
+        print(f"    gh api 실패 (rc={result.returncode}): {result.stderr.strip()}")
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
