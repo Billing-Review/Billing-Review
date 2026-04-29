@@ -179,7 +179,7 @@ def main():
     wiki_id = os.environ.get("DOORAY_WIKI_ID", "")
     project_id = os.environ.get("DOORAY_PROJECT_ID", "")
     draft_parent_id = os.environ.get("DOORAY_DRAFT_PARENT_PAGE_ID", "")
-    base_url = os.environ.get("DOORAY_BASE_URL", "https://api.dooray.com")
+    base_url = os.environ.get("DOORAY_BASE_URL", "https://nhnent.dooray.com")
     repo_short = repo_name.split("/")[-1] if repo_name else ""
 
     for var, val in {
