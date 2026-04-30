@@ -503,7 +503,7 @@ def main():
 
         is_update = (
             isinstance(existing_entry, dict)
-            and existing_entry.get("status") == "published"
+            and existing_entry.get("status") in ("published", "deprecated")
         )
         prefix = "[API Draft][수정]" if is_update else "[API Draft][신규]"
         title = f"{prefix} {method} {path}"

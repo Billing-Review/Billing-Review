@@ -42,6 +42,7 @@ _DRAFT_META_RE = re.compile(
 
 
 def strip_draft_meta(content: str) -> str:
+    content = content.replace('\r\n', '\n')
     return _DRAFT_META_RE.sub("", content)
 
 
