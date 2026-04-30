@@ -146,9 +146,10 @@ def extract_mappings_from_text(text: str, class_prefix: str) -> list:
 
 
 def parse_diff(full_diff: str) -> tuple:
-    """diff → (changed: list[dict], deleted: list[dict])"""
+    """diff → (changed: list[dict], deleted: list[dict], changed_ctrl_files: list[str])"""
     changed, deleted = [], []
     seen_changed, seen_deleted = set(), set()
+    changed_ctrl_files = []
 
     sections = re.split(r"(?=^diff --git )", full_diff, flags=re.MULTILINE)
     for section in sections:
@@ -158,6 +159,15 @@ def parse_diff(full_diff: str) -> tuple:
         filepath = file_m.group(1)
         if not CTRL_PATTERN.search(filepath):
             continue
+
+        # Controller 파일 자체에 변경이 있는지 확인 (어노테이션 무관)
+        has_body_change = any(
+            line.startswith("+") or line.startswith("-")
+            for line in section.splitlines()
+            if not line.startswith("+++") and not line.startswith("---")
+        )
+        if has_body_change:
+            changed_ctrl_files.append(filepath)
 
         class_prefix = get_class_prefix(filepath)
 
@@ -177,7 +187,7 @@ def parse_diff(full_diff: str) -> tuple:
     # +와 - 모두 있으면 수정(changed)이므로 deleted에서 제거
     deleted = [d for d in deleted
                if normalize_api_key(d["method"], d["path"]) not in seen_changed]
-    return changed, deleted
+    return changed, deleted, changed_ctrl_files
 
 
 def filter_diff_for_file(full_diff: str, filepath: str) -> str:
@@ -421,10 +431,22 @@ def main():
             sys.exit(1)
 
     full_diff = get_pr_diff(pr_number, repo_name)
-    changed, deleted = parse_diff(full_diff)
+    changed, deleted, changed_ctrl_files = parse_diff(full_diff)
 
     if not changed and not deleted:
-        print("::notice::Controller 변경사항 없음 — 스킵")
+        if changed_ctrl_files and mode in ("draft", "all"):
+            file_list = "\n".join(f"- `{f}`" for f in changed_ctrl_files)
+            post_pr_comment(pr_number, repo_name,
+                "## ⚠️ API 스펙 변경 감지 안됨\n\n"
+                "아래 Controller 파일에 변경이 있었지만, "
+                "URL/HTTP 메서드 변경이 없어 Draft가 자동 생성되지 않았습니다.\n\n"
+                f"{file_list}\n\n"
+                "RequestParam, RequestBody, 응답 필드 등 스펙이 변경되었다면 "
+                "merge 후 **API Doc Publish** 워크플로우를 수동 실행해 주세요."
+            )
+            print("::notice::Controller 파일 변경 있으나 어노테이션 변경 없음 — 안내 코멘트 게시")
+        else:
+            print("::notice::Controller 변경사항 없음 — 스킵")
         return
 
     # ── delete_draft 모드: PR close(미merge) 시 draft 삭제 ───────────────────
