@@ -11,11 +11,6 @@ on:
         required: true
         type: string
         description: "서비스 저장소 이름 (org/repo)"
-      branch:
-        required: false
-        type: string
-        default: "master"
-        description: "코드를 읽을 브랜치 (draft 없어 코드에서 직접 생성 시 사용)"
       draft_page_id:
         required: false
         type: string
@@ -38,8 +33,6 @@ on:
         required: true
       DOORAY_DRAFT_PARENT_PAGE_ID:
         required: false
-      CLAUDE_CODE_OAUTH_TOKEN:
-        required: false
     outputs:
       page_id:
         description: "본 페이지 ID"
@@ -60,16 +53,6 @@ jobs:
       - name: Clean workspace
         run: find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
 
-      - name: Checkout service repo (Controller 탐색용)
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ inputs.repo_name }}
-          ref: ${{ inputs.branch }}
-          token: ${{ secrets.ORG_GITHUB_TOKEN }}
-          sparse-checkout: |
-            src
-          sparse-checkout-cone-mode: true
-
       - name: Checkout shared-workflows (스크립트 파일용)
         uses: actions/checkout@v4
         with:
@@ -86,13 +69,11 @@ jobs:
           DOORAY_INTERNAL_PARENT_PAGE_ID: ${{ secrets.DOORAY_INTERNAL_PARENT_PAGE_ID }}
           DOORAY_EXTERNAL_PARENT_PAGE_ID: ${{ secrets.DOORAY_EXTERNAL_PARENT_PAGE_ID }}
           DOORAY_DEFAULT_PARENT_PAGE_ID: ${{ secrets.DOORAY_DEFAULT_PARENT_PAGE_ID }}
+          DOORAY_DRAFT_PARENT_PAGE_ID: ${{ secrets.DOORAY_DRAFT_PARENT_PAGE_ID }}
           ORG_GITHUB_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
           API_KEY: ${{ inputs.api_key }}
           REPO_NAME: ${{ inputs.repo_name }}
-          BRANCH: ${{ inputs.branch }}
           DRAFT_PAGE_ID: ${{ inputs.draft_page_id }}
-          DOORAY_DRAFT_PARENT_PAGE_ID: ${{ secrets.DOORAY_DRAFT_PARENT_PAGE_ID }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: python3 shared-config/scripts/api-docs/publish_final.py
 
       - name: Cleanup workspace

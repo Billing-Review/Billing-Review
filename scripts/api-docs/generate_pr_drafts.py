@@ -29,9 +29,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 from lib.api_utils import (
     normalize_api_key, now_kst_display, now_kst_iso, today_kst,
     read_registry, write_registry, registry_path_for, registry_rel_for,
-    get_repo_page_id, set_repo_page_id,
 )
-from lib.dooray import create_page, delete_page, get_page, update_page, get_or_create_child_page
+from lib.dooray import create_page, delete_page, get_page, update_page
 from lib.git_utils import git_commit_and_push
 
 PROMPT_DIR = "shared-config/rest-api-docs"
@@ -402,15 +401,12 @@ def handle_deprecated(dooray_api_key: str, wiki_id: str, base_url: str,
 def main():
     pr_number = os.environ.get("PR_NUMBER", "")
     repo_name = os.environ.get("REPO_NAME", "")
-    # MODE: "draft"=draft생성, "deprecated"=삭제처리, "all"=draft생성+publish+삭제처리, "delete_draft"=draft삭제
+    # MODE: "draft"=draft생성, "deprecated"=삭제처리, "all"=draft생성+삭제처리, "delete_draft"=draft삭제
     mode = os.environ.get("GENERATE_MODE", "all").lower()
     dooray_api_key = os.environ.get("DOORAY_API_KEY", "")
     wiki_id = os.environ.get("DOORAY_WIKI_ID", "")
     project_id = os.environ.get("DOORAY_PROJECT_ID", "")
     draft_parent_id = os.environ.get("DOORAY_DRAFT_PARENT_PAGE_ID", "")
-    internal_parent_id = os.environ.get("DOORAY_INTERNAL_PARENT_PAGE_ID", "")
-    external_parent_id = os.environ.get("DOORAY_EXTERNAL_PARENT_PAGE_ID", "")
-    default_parent_id = os.environ.get("DOORAY_DEFAULT_PARENT_PAGE_ID", "")
     base_url = os.environ.get("DOORAY_BASE_URL", "https://api.dooray.com")
     web_url = os.environ.get("DOORAY_WEB_URL", "https://nhnent.dooray.com")
     repo_short = repo_name.split("/")[-1] if repo_name else ""
@@ -518,55 +514,6 @@ def main():
         )
 
         now = now_kst_iso()
-
-        # ── mode == "all" (PR merge): draft → 본 위키로 바로 publish ─────────
-        if mode == "all" and (internal_parent_id or external_parent_id or default_parent_id):
-            category_parent = (
-                internal_parent_id if url_hint == "internal" else
-                external_parent_id if url_hint == "external" else
-                default_parent_id
-            ) or default_parent_id
-
-            if category_parent:
-                _, draft_content = get_page(dooray_api_key, wiki_id, draft_page_id, base_url)
-                publish_title = re.sub(r"^\[API Draft\](\[수정\]|\[신규\])?\s*", "", title).strip()
-
-                existing_page_id = existing_entry.get("page_id") if isinstance(existing_entry, dict) else None
-                if existing_page_id:
-                    _, existing_content = get_page(dooray_api_key, wiki_id, existing_page_id, base_url)
-                    history_line = f"> 수정: `{api_key}` ({now_kst_display()})\n"
-                    new_content = history_line + "\n" + existing_content + "\n\n---\n\n" + draft_content
-                    update_page(dooray_api_key, wiki_id, existing_page_id, publish_title, new_content, base_url)
-                    final_page_id = existing_page_id
-                else:
-                    repo_page_id = get_repo_page_id(registry, url_hint)
-                    if not repo_page_id:
-                        repo_page_id = get_or_create_child_page(
-                            dooray_api_key, wiki_id, category_parent, repo_short, base_url
-                        )
-                        set_repo_page_id(registry, url_hint, repo_page_id)
-                    final_page_id = create_page(
-                        dooray_api_key, wiki_id, repo_page_id, publish_title, draft_content, base_url
-                    )
-
-                delete_page(dooray_api_key, wiki_id, draft_page_id, base_url)
-                page_url = f"{web_url}/wiki/{project_id}/{final_page_id}"
-                print(f"[INFO] 본 위키 publish 완료: {api_key} → {page_url}")
-
-                registry[api_key] = {
-                    **({} if not isinstance(existing_entry, dict) else existing_entry),
-                    "status": "published",
-                    "page_id": final_page_id,
-                    "draft_page_id": None,
-                    "url_hint": url_hint,
-                    "created_at": existing_entry.get("created_at", now) if isinstance(existing_entry, dict) else now,
-                    "updated_at": now,
-                    "deprecated_at": None,
-                }
-                draft_links.append((api_key, page_url, ("수정" if is_update else "신규"), True))
-                continue
-
-        # ── mode == "draft" (PR open): draft만 저장 ───────────────────────────
         registry[api_key] = {
             **({} if not isinstance(existing_entry, dict) else existing_entry),
             "status": "draft",
@@ -579,7 +526,7 @@ def main():
         if not registry[api_key].get("page_id"):
             registry[api_key]["page_id"] = None
 
-        draft_links.append((api_key, draft_page_url, "수정" if is_update else "신규", False))
+        draft_links.append((api_key, draft_page_url, "수정" if is_update else "신규"))
 
     # ── 삭제된 API: deprecated 처리 ───────────────────────────────────────
     deprecated_list = []
@@ -589,35 +536,23 @@ def main():
             deprecated_list.append(api_key)
 
     # ── registry 커밋 ─────────────────────────────────────────────────────
-    commit_msg = (
-        f"chore: pr#{pr_number} api docs publish - {repo_short} [skip ci]"
-        if mode == "all"
-        else f"chore: pr#{pr_number} api docs draft - {repo_short} [skip ci]"
-    )
     if draft_links or deprecated_list:
         write_registry(reg_path, registry)
-        git_commit_and_push("shared-config", [reg_rel], commit_msg)
+        git_commit_and_push(
+            "shared-config", [reg_rel],
+            f"chore: pr#{pr_number} api docs draft - {repo_short} [skip ci]",
+        )
 
     # ── PR comment ────────────────────────────────────────────────────────
     if draft_links or deprecated_list:
-        published = [(k, u, t) for k, u, t, p in draft_links if p]
-        drafted = [(k, u, t) for k, u, t, p in draft_links if not p]
-
-        if published:
-            lines = ["## API 문서 위키 반영 완료", ""]
-            lines.append("| 구분 | API | 위키 링크 |")
-            lines.append("|------|-----|-----------|")
-            for key, url, kind in published:
-                lines.append(f"| {kind} | `{key}` | [Dooray Wiki]({url}) |")
-        else:
-            lines = ["## API 문서 Draft 생성 완료", ""]
+        lines = ["## API 문서 Draft 생성 완료", ""]
+        if draft_links:
             lines.append("| 구분 | API | Draft 링크 |")
             lines.append("|------|-----|------------|")
-            for key, url, kind in drafted:
+            for key, url, kind in draft_links:
                 lines.append(f"| {kind} | `{key}` | [Dooray Draft]({url}) |")
             lines.append("")
-            lines.append("> Draft 검토 후 `api-doc-publish.yml`을 수동 실행하여 위키에 반영하세요.")
-
+            lines.append("> Draft 검토 후 `API Doc Publish` 워크플로우를 실행하여 위키에 반영하세요.")
         if deprecated_list:
             lines.append("")
             lines.append("**삭제된 API (Deprecated 처리 완료)**")
@@ -627,7 +562,7 @@ def main():
         post_pr_comment(pr_number, repo_name, "\n".join(lines))
         print(f"PR #{pr_number} comment 게시 완료")
 
-    print(f"\n완료 — {'publish' if mode == 'all' else 'draft'} {len(draft_links)}건, deprecated {len(deprecated_list)}건")
+    print(f"\n완료 — draft {len(draft_links)}건, deprecated {len(deprecated_list)}건")
 
 
 if __name__ == "__main__":

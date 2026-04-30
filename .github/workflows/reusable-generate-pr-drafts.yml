@@ -29,12 +29,6 @@ on:
         required: true
       DOORAY_DRAFT_PARENT_PAGE_ID:
         required: true
-      DOORAY_INTERNAL_PARENT_PAGE_ID:
-        required: false
-      DOORAY_EXTERNAL_PARENT_PAGE_ID:
-        required: false
-      DOORAY_DEFAULT_PARENT_PAGE_ID:
-        required: false
 
 jobs:
   generate:
@@ -75,9 +69,6 @@ jobs:
           DOORAY_WIKI_ID: ${{ secrets.DOORAY_WIKI_ID }}
           DOORAY_PROJECT_ID: ${{ secrets.DOORAY_PROJECT_ID }}
           DOORAY_DRAFT_PARENT_PAGE_ID: ${{ secrets.DOORAY_DRAFT_PARENT_PAGE_ID }}
-          DOORAY_INTERNAL_PARENT_PAGE_ID: ${{ secrets.DOORAY_INTERNAL_PARENT_PAGE_ID }}
-          DOORAY_EXTERNAL_PARENT_PAGE_ID: ${{ secrets.DOORAY_EXTERNAL_PARENT_PAGE_ID }}
-          DOORAY_DEFAULT_PARENT_PAGE_ID: ${{ secrets.DOORAY_DEFAULT_PARENT_PAGE_ID }}
           PR_NUMBER: ${{ inputs.pr_number }}
           REPO_NAME: ${{ inputs.repo_name }}
           GENERATE_MODE: ${{ inputs.mode }}
