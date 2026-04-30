@@ -21,18 +21,6 @@ on:
         required: true
       DOORAY_API_KEY:
         required: true
-      DOORAY_WIKI_ID:
-        required: true
-      DOORAY_PROJECT_ID:
-        required: true
-      DOORAY_INTERNAL_PARENT_PAGE_ID:
-        required: false
-      DOORAY_EXTERNAL_PARENT_PAGE_ID:
-        required: false
-      DOORAY_DEFAULT_PARENT_PAGE_ID:
-        required: true
-      DOORAY_DRAFT_PARENT_PAGE_ID:
-        required: false
     outputs:
       page_id:
         description: "본 페이지 ID"
@@ -64,12 +52,6 @@ jobs:
         id: publish
         env:
           DOORAY_API_KEY: ${{ secrets.DOORAY_API_KEY }}
-          DOORAY_WIKI_ID: ${{ secrets.DOORAY_WIKI_ID }}
-          DOORAY_PROJECT_ID: ${{ secrets.DOORAY_PROJECT_ID }}
-          DOORAY_INTERNAL_PARENT_PAGE_ID: ${{ secrets.DOORAY_INTERNAL_PARENT_PAGE_ID }}
-          DOORAY_EXTERNAL_PARENT_PAGE_ID: ${{ secrets.DOORAY_EXTERNAL_PARENT_PAGE_ID }}
-          DOORAY_DEFAULT_PARENT_PAGE_ID: ${{ secrets.DOORAY_DEFAULT_PARENT_PAGE_ID }}
-          DOORAY_DRAFT_PARENT_PAGE_ID: ${{ secrets.DOORAY_DRAFT_PARENT_PAGE_ID }}
           ORG_GITHUB_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
           API_KEY: ${{ inputs.api_key }}
           REPO_NAME: ${{ inputs.repo_name }}

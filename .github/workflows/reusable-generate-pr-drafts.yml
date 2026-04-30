@@ -23,12 +23,6 @@ on:
         required: true
       DOORAY_API_KEY:
         required: true
-      DOORAY_WIKI_ID:
-        required: true
-      DOORAY_PROJECT_ID:
-        required: true
-      DOORAY_DRAFT_PARENT_PAGE_ID:
-        required: true
 
 jobs:
   generate:
@@ -66,9 +60,6 @@ jobs:
           GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           DOORAY_API_KEY: ${{ secrets.DOORAY_API_KEY }}
-          DOORAY_WIKI_ID: ${{ secrets.DOORAY_WIKI_ID }}
-          DOORAY_PROJECT_ID: ${{ secrets.DOORAY_PROJECT_ID }}
-          DOORAY_DRAFT_PARENT_PAGE_ID: ${{ secrets.DOORAY_DRAFT_PARENT_PAGE_ID }}
           PR_NUMBER: ${{ inputs.pr_number }}
           REPO_NAME: ${{ inputs.repo_name }}
           GENERATE_MODE: ${{ inputs.mode }}

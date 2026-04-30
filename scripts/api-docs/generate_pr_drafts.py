@@ -32,6 +32,9 @@ from lib.api_utils import (
 )
 from lib.dooray import create_page, delete_page, get_page, update_page
 from lib.git_utils import git_commit_and_push
+from lib.config import (
+    DOORAY_WIKI_ID, DOORAY_PROJECT_ID, DOORAY_DRAFT_PARENT_PAGE_ID,
+)
 
 PROMPT_DIR = "shared-config/rest-api-docs"
 SYSTEM_PROMPT_FILE = f"{PROMPT_DIR}/docs-writer.md"
@@ -487,17 +490,16 @@ def main():
     # MODE: "draft"=draft생성, "deprecated"=삭제처리, "all"=draft생성+삭제처리, "delete_draft"=draft삭제
     mode = os.environ.get("GENERATE_MODE", "all").lower()
     dooray_api_key = os.environ.get("DOORAY_API_KEY", "")
-    wiki_id = os.environ.get("DOORAY_WIKI_ID", "")
-    project_id = os.environ.get("DOORAY_PROJECT_ID", "")
-    draft_parent_id = os.environ.get("DOORAY_DRAFT_PARENT_PAGE_ID", "")
+    wiki_id = DOORAY_WIKI_ID
+    project_id = DOORAY_PROJECT_ID
+    draft_parent_id = DOORAY_DRAFT_PARENT_PAGE_ID
     base_url = os.environ.get("DOORAY_BASE_URL", "https://api.dooray.com")
     web_url = os.environ.get("DOORAY_WEB_URL", "https://nhnent.dooray.com")
     repo_short = repo_name.split("/")[-1] if repo_name else ""
 
     for var, val in {
         "PR_NUMBER": pr_number, "REPO_NAME": repo_name,
-        "DOORAY_API_KEY": dooray_api_key, "DOORAY_WIKI_ID": wiki_id,
-        "DOORAY_PROJECT_ID": project_id, "DOORAY_DRAFT_PARENT_PAGE_ID": draft_parent_id,
+        "DOORAY_API_KEY": dooray_api_key,
     }.items():
         if not val:
             print(f"{var} 환경 변수가 필요합니다.", file=sys.stderr)

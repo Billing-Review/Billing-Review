@@ -34,6 +34,11 @@ from lib.dooray import (
     get_or_create_child_page, update_page,
 )
 from lib.git_utils import git_commit_and_push
+from lib.config import (
+    DOORAY_WIKI_ID, DOORAY_PROJECT_ID, DOORAY_DRAFT_PARENT_PAGE_ID,
+    DOORAY_INTERNAL_PARENT_PAGE_ID, DOORAY_EXTERNAL_PARENT_PAGE_ID,
+    DOORAY_DEFAULT_PARENT_PAGE_ID,
+)
 
 _DRAFT_META_RE = re.compile(
     r'^> \*\*\[Draft\]\*\*.*\n> 생성 시각:.*\n\n---\n\n',
@@ -48,12 +53,12 @@ def strip_draft_meta(content: str) -> str:
 
 def get_category_parent(url_hint: str) -> str:
     if url_hint == "internal":
-        parent = os.environ.get("DOORAY_INTERNAL_PARENT_PAGE_ID", "")
+        parent = DOORAY_INTERNAL_PARENT_PAGE_ID
     elif url_hint == "external":
-        parent = os.environ.get("DOORAY_EXTERNAL_PARENT_PAGE_ID", "")
+        parent = DOORAY_EXTERNAL_PARENT_PAGE_ID
     else:
-        parent = os.environ.get("DOORAY_DEFAULT_PARENT_PAGE_ID", "")
-    parent = parent or os.environ.get("DOORAY_DEFAULT_PARENT_PAGE_ID", "")
+        parent = DOORAY_DEFAULT_PARENT_PAGE_ID
+    parent = parent or DOORAY_DEFAULT_PARENT_PAGE_ID
     if not parent:
         print("[ERROR] 본 페이지 부모 ID를 찾을 수 없습니다.", file=sys.stderr)
         sys.exit(1)
@@ -76,9 +81,9 @@ def find_draft_in_dooray(dooray_api_key: str, wiki_id: str,
 
 def main():
     dooray_api_key = os.environ.get("DOORAY_API_KEY", "")
-    wiki_id = os.environ.get("DOORAY_WIKI_ID", "")
-    project_id = os.environ.get("DOORAY_PROJECT_ID", "")
-    draft_parent_id = os.environ.get("DOORAY_DRAFT_PARENT_PAGE_ID", "")
+    wiki_id = DOORAY_WIKI_ID
+    project_id = DOORAY_PROJECT_ID
+    draft_parent_id = DOORAY_DRAFT_PARENT_PAGE_ID
     base_url = os.environ.get("DOORAY_BASE_URL", "https://api.dooray.com")
     web_url = os.environ.get("DOORAY_WEB_URL", "https://nhnent.dooray.com")
     raw_api_key = os.environ.get("API_KEY", "")
@@ -87,8 +92,7 @@ def main():
     fallback_draft_page_id = os.environ.get("DRAFT_PAGE_ID", "")
 
     for var, val in {
-        "DOORAY_API_KEY": dooray_api_key, "DOORAY_WIKI_ID": wiki_id,
-        "DOORAY_PROJECT_ID": project_id, "API_KEY": raw_api_key, "REPO_NAME": repo_name,
+        "DOORAY_API_KEY": dooray_api_key, "API_KEY": raw_api_key, "REPO_NAME": repo_name,
     }.items():
         if not val:
             print(f"{var} 환경 변수가 필요합니다.", file=sys.stderr)
