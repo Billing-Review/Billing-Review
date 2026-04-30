@@ -13,6 +13,11 @@ on:
         required: false
         type: boolean
         default: false
+      context-repo:
+        description: 'ai-context가 저장된 레포 (기본: billing-context)'
+        required: false
+        type: string
+        default: 'billing-context'
 
 jobs:
   sync:
@@ -35,6 +40,7 @@ jobs:
       - name: 📥 Checkout billing-context
         uses: actions/checkout@v5
         with:
+          repository: ${{ github.repository_owner }}/${{ inputs.context-repo }}
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
 
