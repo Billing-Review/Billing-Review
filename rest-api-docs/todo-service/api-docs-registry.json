@@ -19,5 +19,23 @@
   },
   "__repo_page_id__": {
     "external": "4321329214678804210"
+  },
+  "GET /external/api/todo-list/statistics": {
+    "status": "draft",
+    "draft_page_id": "4321853438466680426",
+    "url_hint": "external",
+    "created_at": "2026-04-30T09:31:17+09:00",
+    "updated_at": "2026-04-30T09:31:17+09:00",
+    "deprecated_at": null,
+    "page_id": null
+  },
+  "PATCH /external/api/todo-list/{id}": {
+    "status": "draft",
+    "draft_page_id": "4321853759906832552",
+    "url_hint": "external",
+    "created_at": "2026-04-30T09:31:56+09:00",
+    "updated_at": "2026-04-30T09:31:56+09:00",
+    "deprecated_at": null,
+    "page_id": null
   }
 }
