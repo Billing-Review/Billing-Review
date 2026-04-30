@@ -17,7 +17,9 @@ on:
         default: ""
         description: "Dooray Draft 페이지 ID (registry 미등록 시 fallback)"
     secrets:
-      ORG_GITHUB_TOKEN:
+      CODE_REVIEW_APP_ID:
+        required: true
+      CODE_REVIEW_APP_PRIVATE_KEY:
         required: true
       DOORAY_API_KEY:
         required: true
@@ -41,18 +43,25 @@ jobs:
       - name: Clean workspace
         run: find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
 
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.CODE_REVIEW_APP_ID }}
+          private-key: ${{ secrets.CODE_REVIEW_APP_PRIVATE_KEY }}
+
       - name: Checkout shared-workflows (스크립트 파일용)
         uses: actions/checkout@v4
         with:
           repository: dev-billing/shared-workflows
-          token: ${{ secrets.ORG_GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
           path: shared-config
 
       - name: Publish Final to Dooray Wiki
         id: publish
         env:
           DOORAY_API_KEY: ${{ secrets.DOORAY_API_KEY }}
-          ORG_GITHUB_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
+          ORG_GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           API_KEY: ${{ inputs.api_key }}
           REPO_NAME: ${{ inputs.repo_name }}
           DRAFT_PAGE_ID: ${{ inputs.draft_page_id }}
