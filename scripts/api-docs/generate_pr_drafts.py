@@ -172,9 +172,8 @@ def get_method_line_range(filepath: str, http_method: str, target_path: str) -> 
 
     mapping_idx = None
     for i, line in enumerate(lines):
-        for verb, path in extract_mappings_from_text(line.strip(), class_prefix):
-            sep = "/" if path and not path.startswith("/") else ""
-            if verb.upper() == http_method.upper() and _normalize_path(class_prefix + sep + path) == norm_target:
+        for verb, full_path in extract_mappings_from_text(line.strip(), class_prefix):
+            if verb.upper() == http_method.upper() and _normalize_path(full_path) == norm_target:
                 mapping_idx = i
                 break
         if mapping_idx is not None:
@@ -296,9 +295,8 @@ def extract_method_for_api(filepath: str, http_method: str, target_path: str) ->
     # 대상 @*Mapping 어노테이션 라인 탐색
     mapping_idx = None
     for i, line in enumerate(lines):
-        for verb, path in extract_mappings_from_text(line.strip(), class_prefix):
-            sep = "/" if path and not path.startswith("/") else ""
-            if verb.upper() == http_method.upper() and _normalize_path(class_prefix + sep + path) == norm_target:
+        for verb, full_path in extract_mappings_from_text(line.strip(), class_prefix):
+            if verb.upper() == http_method.upper() and _normalize_path(full_path) == norm_target:
                 mapping_idx = i
                 break
         if mapping_idx is not None:
