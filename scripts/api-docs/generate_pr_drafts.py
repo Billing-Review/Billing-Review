@@ -145,11 +145,76 @@ def extract_mappings_from_text(text: str, class_prefix: str) -> list:
     return results
 
 
+def get_all_apis_in_file(filepath: str) -> list:
+    """Controller 파일의 모든 API 목록 반환 [(verb, full_path), ...]"""
+    try:
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+    except OSError:
+        return []
+    class_m = _CLASS_MAPPING_RE.search(content)
+    class_prefix = class_m.group(1).rstrip("/") if class_m else ""
+    return extract_mappings_from_text(content, class_prefix)
+
+
+def get_method_line_range(filepath: str, http_method: str, target_path: str) -> tuple:
+    """해당 API 메서드 블록의 라인 범위 반환 (1-indexed). 없으면 (-1, -1)"""
+    try:
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except OSError:
+        return -1, -1
+
+    content = "".join(lines)
+    class_m = _CLASS_MAPPING_RE.search(content)
+    class_prefix = class_m.group(1).rstrip("/") if class_m else ""
+    norm_target = _normalize_path(target_path)
+
+    mapping_idx = None
+    for i, line in enumerate(lines):
+        for verb, path in extract_mappings_from_text(line.strip(), class_prefix):
+            sep = "/" if path and not path.startswith("/") else ""
+            if verb.upper() == http_method.upper() and _normalize_path(class_prefix + sep + path) == norm_target:
+                mapping_idx = i
+                break
+        if mapping_idx is not None:
+            break
+
+    if mapping_idx is None:
+        return -1, -1
+
+    start = mapping_idx
+    while start > 0 and lines[start - 1].strip().startswith("@"):
+        start -= 1
+
+    depth, found, end = 0, False, start
+    for i in range(start, len(lines)):
+        depth += lines[i].count("{") - lines[i].count("}")
+        if depth > 0:
+            found = True
+        if found and depth <= 0:
+            end = i
+            break
+
+    return start + 1, end + 1  # 1-indexed
+
+
+def get_changed_line_ranges(section: str) -> list:
+    """diff section의 @@ 헝크에서 변경 라인 범위 반환 (새 파일 기준, 1-indexed)"""
+    ranges = []
+    hunk_re = re.compile(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@', re.MULTILINE)
+    for m in hunk_re.finditer(section):
+        start = int(m.group(1))
+        count = int(m.group(2)) if m.group(2) is not None else 1
+        if count > 0:
+            ranges.append((start, start + count - 1))
+    return ranges
+
+
 def parse_diff(full_diff: str) -> tuple:
-    """diff → (changed: list[dict], deleted: list[dict], changed_ctrl_files: list[str])"""
+    """diff → (changed: list[dict], deleted: list[dict])"""
     changed, deleted = [], []
     seen_changed, seen_deleted = set(), set()
-    changed_ctrl_files = []
 
     sections = re.split(r"(?=^diff --git )", full_diff, flags=re.MULTILINE)
     for section in sections:
@@ -160,17 +225,9 @@ def parse_diff(full_diff: str) -> tuple:
         if not CTRL_PATTERN.search(filepath):
             continue
 
-        # Controller 파일 자체에 변경이 있는지 확인 (어노테이션 무관)
-        has_body_change = any(
-            line.startswith("+") or line.startswith("-")
-            for line in section.splitlines()
-            if not line.startswith("+++") and not line.startswith("---")
-        )
-        if has_body_change:
-            changed_ctrl_files.append(filepath)
-
         class_prefix = get_class_prefix(filepath)
 
+        # 1) 어노테이션 변경 감지
         for line in section.splitlines():
             if not (line.startswith("+") or line.startswith("-")):
                 continue
@@ -184,10 +241,28 @@ def parse_diff(full_diff: str) -> tuple:
                     deleted.append({"method": verb, "path": path})
                     seen_deleted.add(key)
 
+        # 2) 메서드 바디 변경 감지 (어노테이션 변경 없는 API)
+        if not os.path.exists(filepath):
+            continue
+        changed_ranges = get_changed_line_ranges(section)
+        if not changed_ranges:
+            continue
+        for verb, path in get_all_apis_in_file(filepath):
+            key = normalize_api_key(verb, path)
+            if key in seen_changed:
+                continue
+            m_start, m_end = get_method_line_range(filepath, verb, path)
+            if m_start == -1:
+                continue
+            if any(m_start <= r_end and r_start <= m_end for r_start, r_end in changed_ranges):
+                changed.append({"method": verb, "path": path, "file": filepath})
+                seen_changed.add(key)
+                print(f"[INFO] 메서드 바디 변경 감지: {key}")
+
     # +와 - 모두 있으면 수정(changed)이므로 deleted에서 제거
     deleted = [d for d in deleted
                if normalize_api_key(d["method"], d["path"]) not in seen_changed]
-    return changed, deleted, changed_ctrl_files
+    return changed, deleted
 
 
 def filter_diff_for_file(full_diff: str, filepath: str) -> str:
@@ -431,22 +506,10 @@ def main():
             sys.exit(1)
 
     full_diff = get_pr_diff(pr_number, repo_name)
-    changed, deleted, changed_ctrl_files = parse_diff(full_diff)
+    changed, deleted = parse_diff(full_diff)
 
     if not changed and not deleted:
-        if changed_ctrl_files and mode in ("draft", "all"):
-            file_list = "\n".join(f"- `{f}`" for f in changed_ctrl_files)
-            post_pr_comment(pr_number, repo_name,
-                "## ⚠️ API 스펙 변경 감지 안됨\n\n"
-                "아래 Controller 파일에 변경이 있었지만, "
-                "URL/HTTP 메서드 변경이 없어 Draft가 자동 생성되지 않았습니다.\n\n"
-                f"{file_list}\n\n"
-                "RequestParam, RequestBody, 응답 필드 등 스펙이 변경되었다면 "
-                "merge 후 **API Doc Publish** 워크플로우를 수동 실행해 주세요."
-            )
-            print("::notice::Controller 파일 변경 있으나 어노테이션 변경 없음 — 안내 코멘트 게시")
-        else:
-            print("::notice::Controller 변경사항 없음 — 스킵")
+        print("::notice::Controller 변경사항 없음 — 스킵")
         return
 
     # ── delete_draft 모드: PR close(미merge) 시 draft 삭제 ───────────────────
