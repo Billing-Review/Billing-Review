@@ -466,11 +466,28 @@ def handle_deprecated(dooray_api_key: str, wiki_id: str, base_url: str,
         return False
 
     today = today_kst()
-    marker = f"@Deprecated({today})\n\n"
+    deprecated_marker = f"### @Deprecated({today})\n\n"
+    history_section = "### 변경 이력"
     try:
         title, content = get_page(dooray_api_key, wiki_id, page_id, base_url)
-        if marker.strip() not in content:
-            update_page(dooray_api_key, wiki_id, page_id, title, marker + content, base_url)
+        content = content.replace('\r\n', '\n')
+        new_content = content
+
+        # 상단 @Deprecated 마커 추가 (없을 때만)
+        if "@Deprecated(" not in content:
+            new_content = deprecated_marker + new_content
+
+        # 하단 변경 이력에 Deprecated 항목 추가
+        if history_section in new_content:
+            new_content = new_content.rstrip() + f"\n| {today} | Deprecated |\n"
+        else:
+            new_content = new_content.rstrip() + (
+                f"\n\n---\n\n{history_section}\n\n"
+                f"| 날짜 | 내용 |\n|------|------|\n"
+                f"| {today} | Deprecated |\n"
+            )
+
+        update_page(dooray_api_key, wiki_id, page_id, title, new_content, base_url)
         registry[api_key] = {
             **(entry if isinstance(entry, dict) else {"page_id": page_id}),
             "status": "deprecated",

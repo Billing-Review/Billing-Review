@@ -45,10 +45,20 @@ _DRAFT_META_RE = re.compile(
     re.MULTILINE,
 )
 
+_HISTORY_SECTION = "### 변경 이력"
+
 
 def strip_draft_meta(content: str) -> str:
     content = content.replace('\r\n', '\n')
     return _DRAFT_META_RE.sub("", content)
+
+
+def append_history_entry(content: str, entry: str) -> str:
+    """변경 이력 섹션 맨 아래에 항목을 추가한다. 섹션이 없으면 새로 만든다."""
+    content = content.rstrip()
+    if _HISTORY_SECTION in content:
+        return content + f"\n| {entry} |\n"
+    return content + f"\n\n---\n\n{_HISTORY_SECTION}\n\n| 날짜 | 내용 |\n|------|------|\n| {entry} |\n"
 
 
 def get_category_parent(url_hint: str) -> str:
@@ -128,14 +138,27 @@ def main():
 
     existing_page_id = entry.get("page_id")
 
+    today = now_kst_display()
+
     # 위키 페이지 생성/업데이트
     if existing_page_id:
-        history_line = f"> 수정: `{api_key}` ({now_kst_display()})\n\n"
-        new_content = history_line + clean_content
+        _, existing_content = get_page(dooray_api_key, wiki_id, existing_page_id, base_url)
+        existing_content = existing_content.replace('\r\n', '\n')
+        # 기존 변경 이력 섹션을 보존하고 새 내용에 이어붙임
+        if _HISTORY_SECTION in existing_content:
+            history_block = existing_content[existing_content.index(_HISTORY_SECTION):]
+            base_content = append_history_entry(clean_content, f"{today} | 수정 반영")
+            # 기존 이력 행들 이전 이력 유지: clean_content의 이력 섹션을 기존 이력으로 대체
+            if _HISTORY_SECTION in base_content:
+                base_content = base_content[:base_content.index(_HISTORY_SECTION)]
+            new_content = base_content.rstrip() + "\n\n" + history_block.rstrip() + f"\n| {today} | 수정 반영 |\n"
+        else:
+            new_content = append_history_entry(clean_content, f"{today} | 수정 반영")
         update_page(dooray_api_key, wiki_id, existing_page_id, publish_title, new_content, base_url)
         final_page_id = existing_page_id
         action = "updated"
     else:
+        new_content = append_history_entry(clean_content, f"{today} | 최초 등록")
         category_parent = get_category_parent(url_hint)
         repo_page_id = get_repo_page_id(registry, url_hint)
         if not repo_page_id:
@@ -144,7 +167,7 @@ def main():
             )
             set_repo_page_id(registry, url_hint, repo_page_id)
         final_page_id = create_page(
-            dooray_api_key, wiki_id, repo_page_id, publish_title, clean_content, base_url
+            dooray_api_key, wiki_id, repo_page_id, publish_title, new_content, base_url
         )
         action = "created"
 
