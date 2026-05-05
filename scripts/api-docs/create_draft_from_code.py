@@ -260,7 +260,7 @@ def main():
     with open(TEMPLATE_FILE, "r") as f:
         template = f.read()
 
-    service_config = read_service_config()
+    service_config = read_service_config(repo_short)
     env_url_section = build_env_url_section(service_config)
     env_url_hint = ""
     if env_url_section:

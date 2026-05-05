@@ -580,7 +580,7 @@ def main():
     reg_path = registry_path_for(repo_short)
     reg_rel = registry_rel_for(repo_short)
     registry = read_registry(reg_path)
-    service_config = read_service_config()
+    service_config = read_service_config(repo_short)
 
     draft_links = []
 

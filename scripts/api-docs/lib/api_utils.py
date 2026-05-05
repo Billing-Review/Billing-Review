@@ -83,13 +83,11 @@ def set_repo_page_id(registry: dict, url_hint: str, page_id: str):
     registry[_REPO_PAGE_KEY][url_hint or "default"] = page_id
 
 
-SERVICE_CONFIG_PATH = ".github/api-docs-config.json"
-
-
-def read_service_config() -> dict:
-    """서비스 레포의 .github/api-docs-config.json 읽기. 없으면 빈 dict."""
-    if os.path.exists(SERVICE_CONFIG_PATH):
-        with open(SERVICE_CONFIG_PATH, "r", encoding="utf-8") as f:
+def read_service_config(repo_short_name: str) -> dict:
+    """shared-config/rest-api-docs/{repo}/service-config.json 읽기. 없으면 빈 dict."""
+    path = os.path.join("shared-config", "rest-api-docs", repo_short_name, "service-config.json")
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
 
