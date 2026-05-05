@@ -83,6 +83,26 @@ def set_repo_page_id(registry: dict, url_hint: str, page_id: str):
     registry[_REPO_PAGE_KEY][url_hint or "default"] = page_id
 
 
+SERVICE_CONFIG_PATH = ".github/api-docs-config.json"
+
+
+def read_service_config() -> dict:
+    """서비스 레포의 .github/api-docs-config.json 읽기. 없으면 빈 dict."""
+    if os.path.exists(SERVICE_CONFIG_PATH):
+        with open(SERVICE_CONFIG_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def build_env_url_section(service_config: dict) -> str:
+    """서비스 설정에서 환경별 URL 섹션 문자열 생성. 설정 없으면 빈 문자열."""
+    envs = service_config.get("environments", {})
+    if not envs:
+        return ""
+    rows = "\n".join(f"| {env} | {url} |" for env, url in envs.items())
+    return f"## 서버 URL\n\n| 환경 | Base URL |\n|------|----------|\n{rows}\n"
+
+
 def registry_path_for(repo_short_name: str) -> str:
     """shared-config checkout 기준 registry 파일 경로 반환."""
     return os.path.join("shared-config", "rest-api-docs", repo_short_name, "api-docs-registry.json")

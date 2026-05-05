@@ -22,6 +22,7 @@ from lib.api_utils import (
     normalize_api_key, now_kst_display, now_kst_iso,
     read_registry, write_registry, set_output,
     registry_path_for, registry_rel_for,
+    read_service_config, build_env_url_section,
 )
 from lib.dooray import create_page, delete_page
 from lib.git_utils import git_commit_and_push
@@ -259,12 +260,18 @@ def main():
     with open(TEMPLATE_FILE, "r") as f:
         template = f.read()
 
+    service_config = read_service_config()
+    env_url_section = build_env_url_section(service_config)
+    env_url_hint = ""
+    if env_url_section:
+        env_url_hint = f"\n{env_url_section}\n위 서버 URL을 문서의 '서버 URL' 섹션에 반드시 포함하세요.\n"
+
     prompt = f"""{system_prompt}
 
 **[중요] [{http_method}] {path} 엔드포인트 하나에 대한 API 문서만 작성하세요.**
 
 다음은 {repo_name} 레포지토리에서 [{http_method}] {path} API를 처리하는 코드입니다.
-
+{env_url_hint}
 {code_content}
 
 아래 템플릿 형식으로 API 문서를 작성하세요.

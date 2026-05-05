@@ -28,6 +28,7 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 from lib.api_utils import (
     normalize_api_key, now_kst_display, now_kst_iso, today_kst,
+    read_service_config, build_env_url_section,
     read_registry, write_registry, registry_path_for, registry_rel_for,
 )
 from lib.dooray import create_page, delete_page, get_page, update_page
@@ -382,13 +383,16 @@ def infer_url_hint(path: str, code_content: str) -> str:
 
 def generate_doc(method: str, path: str, ctrl_file: str, full_diff: str,
                  pr_title: str, pr_body: str, existing_doc: str,
-                 system_prompt: str, template: str) -> str:
+                 system_prompt: str, template: str,
+                 service_config: dict | None = None) -> str:
     method_code = extract_method_for_api(ctrl_file, method, path)
     related = find_related_files([ctrl_file])
     code_content = f"### [Controller] {ctrl_file}\n```java\n{method_code}\n```"
     if related:
         code_content += "\n\n" + read_files(related, "참조")
     file_diff = filter_diff_for_file(full_diff, ctrl_file)
+
+    env_url_section = build_env_url_section(service_config or {})
 
     update_section = ""
     if existing_doc:
@@ -398,6 +402,10 @@ def generate_doc(method: str, path: str, ctrl_file: str, full_diff: str,
 {existing_doc[:3000]}
 """
 
+    env_url_hint = ""
+    if env_url_section:
+        env_url_hint = f"\n{env_url_section}\n위 서버 URL을 문서의 '서버 URL' 섹션에 반드시 포함하세요.\n"
+
     prompt = f"""{system_prompt}
 
 **[중요] [{method}] {path} 엔드포인트 하나에 대한 API 문서만 작성하세요. 같은 컨트롤러의 다른 엔드포인트는 포함하지 마세요.**
@@ -406,7 +414,7 @@ def generate_doc(method: str, path: str, ctrl_file: str, full_diff: str,
 
 PR 제목: {pr_title}
 PR 설명: {pr_body[:1000] if pr_body else "(없음)"}
-
+{env_url_hint}
 ## 소스 코드
 {code_content}
 
@@ -572,6 +580,7 @@ def main():
     reg_path = registry_path_for(repo_short)
     reg_rel = registry_rel_for(repo_short)
     registry = read_registry(reg_path)
+    service_config = read_service_config()
 
     draft_links = []
 
@@ -601,6 +610,7 @@ def main():
             method, path, ctrl_file, full_diff,
             pr_title, pr_body, existing_doc,
             system_prompt, template,
+            service_config=service_config,
         )
 
         is_update = (

@@ -12,6 +12,15 @@
 
 ---
 
+## 서버 URL
+
+| 환경 | Base URL |
+|------|----------|
+| Alpha | https://alpha-{서비스}.example.com |
+| Real  | https://{서비스}.example.com |
+
+---
+
 ## [HTTP Method] [/api/경로]
 
 **설명**: (이 엔드포인트가 하는 일을 한 줄로)
