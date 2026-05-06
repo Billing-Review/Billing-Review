@@ -67,6 +67,7 @@ jobs:
       - name: Generate PR Drafts
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ORG_GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           DOORAY_API_KEY: ${{ secrets.DOORAY_API_KEY }}
           PR_NUMBER: ${{ inputs.pr_number }}
