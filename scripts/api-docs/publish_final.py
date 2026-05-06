@@ -168,3 +168,7 @@ def main():
     set_output("page_id", final_page_id)
     set_output("page_url", page_url)
     print(f"[INFO] Publish 완료 ({action}): {page_url}")
+
+
+if __name__ == "__main__":
+    main()
