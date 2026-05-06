@@ -31,6 +31,7 @@ from lib.api_utils import (
     read_service_config, build_env_url_section,
     read_registry, write_registry, registry_path_for, registry_rel_for,
     extract_javadoc_and_params, parse_field_javadocs, format_doc_hints,
+    check_javadoc_completeness,
 )
 from lib.dooray import create_page, delete_page, get_page, update_page
 from lib.git_utils import git_commit_and_push
@@ -385,7 +386,7 @@ def infer_url_hint(path: str, code_content: str) -> str:
 def generate_doc(method: str, path: str, ctrl_file: str, full_diff: str,
                  pr_title: str, pr_body: str, existing_doc: str,
                  system_prompt: str, template: str,
-                 service_config=None, prev_doc: str = "") -> str:
+                 service_config=None, prev_doc: str = "") -> tuple:
     method_code = extract_method_for_api(ctrl_file, method, path)
     related = find_related_files([ctrl_file])
     code_content = f"### [Controller] {ctrl_file}\n```java\n{method_code}\n```"
@@ -395,24 +396,31 @@ def generate_doc(method: str, path: str, ctrl_file: str, full_diff: str,
 
     # Javadoc 파싱
     doc_info = extract_javadoc_and_params(ctrl_file, method, path)
+    javadoc = doc_info.get("javadoc", {})
+    method_params = doc_info.get("method_params", {})
+
+    # 주석 완성도 검증 — 누락 시 Actions 실패
+    errors = check_javadoc_completeness(javadoc, method_params)
+    if errors:
+        print(f"[ERROR] [{method}] {path} — API 문서 주석이 불충분합니다:", file=sys.stderr)
+        for e in errors:
+            print(f"  • {e}", file=sys.stderr)
+        print(f"\n  작성 방법: shared-workflows/rest-api-docs/javadoc-guide.md 참조", file=sys.stderr)
+        sys.exit(1)
+
     all_field_docs = {}
     for rp in related:
         all_field_docs.update(parse_field_javadocs(rp))
-    doc_hints = format_doc_hints(
-        doc_info.get("javadoc", {}),
-        doc_info.get("method_params", {}),
-        all_field_docs,
-    )
+    doc_hints = format_doc_hints(javadoc, method_params, all_field_docs)
 
-    # @docUrl → url_hint 우선 적용 (반환값으로 전달)
-    doc_info["_doc_url"] = doc_info.get("javadoc", {}).get("doc_url", "")
+    javadoc_doc_url = javadoc.get("doc_url", "")
+    javadoc_title = javadoc.get("title", "")
 
     env_url_section = build_env_url_section(service_config or {})
     env_url_hint = ""
     if env_url_section:
         env_url_hint = f"\n{env_url_section}\n위 서버 URL을 문서의 '서버 URL' 섹션에 반드시 포함하세요.\n"
 
-    # 기존 문서 컨텍스트 (수정 시) 또는 이전 URL 문서 (URL 변경 시)
     ref_section = ""
     if prev_doc:
         ref_section = f"""
@@ -430,6 +438,7 @@ def generate_doc(method: str, path: str, ctrl_file: str, full_diff: str,
     prompt = f"""{system_prompt}
 
 **[중요] [{method}] {path} 엔드포인트 하나에 대한 API 문서만 작성하세요. 같은 컨트롤러의 다른 엔드포인트는 포함하지 마세요.**
+**문서의 첫 줄(H1)은 작성하지 마세요. 개요부터 시작하세요.**
 
 다음은 [{method}] {path} API에 대한 코드와 PR 변경사항입니다.
 
@@ -450,7 +459,13 @@ PR 설명: {pr_body[:1000] if pr_body else "(없음)"}
 
 {template}
 """
-    return call_claude(prompt), doc_info.get("_doc_url", "")
+    raw_content = call_claude(prompt)
+
+    # H1은 프로그래밍적으로 주입 ([METHOD] /path 형식)
+    body = re.sub(r'^\s*#(?!#)[^\n]+\n+', '', raw_content)
+    doc_content = f"# [{method}] {path}\n\n{body}"
+
+    return doc_content, javadoc_doc_url, javadoc_title
 
 
 # ── Dooray draft 생성 ─────────────────────────────────────────────────────────
@@ -624,7 +639,7 @@ def main():
         prev_doc = prev_docs_by_file.get(ctrl_file, "")
 
         print(f"[INFO] 문서 생성 중: {api_key}")
-        doc_content, javadoc_doc_url = generate_doc(
+        doc_content, javadoc_doc_url, javadoc_title = generate_doc(
             method, path, ctrl_file, full_diff,
             pr_title, pr_body, existing_doc,
             system_prompt, template,
@@ -644,11 +659,12 @@ def main():
             and existing_entry.get("status") in ("published", "deprecated")
         )
         prefix = "[API Draft][수정]" if is_update else "[API Draft][신규]"
-        title = f"{prefix} {method} {path}"
+        # draft 페이지 제목: Javadoc 제목 우선, 없으면 method + path
+        draft_title = f"{prefix} {javadoc_title}" if javadoc_title else f"{prefix} {method} {path}"
 
         draft_page_id, draft_page_url = create_draft(
             dooray_api_key, wiki_id, draft_parent_id, base_url, web_url, project_id,
-            api_key, title, doc_content, url_hint, registry,
+            api_key, draft_title, doc_content, url_hint, registry,
         )
 
         now = now_kst_iso()
@@ -656,6 +672,7 @@ def main():
             **({} if not isinstance(existing_entry, dict) else existing_entry),
             "status": "draft",
             "draft_page_id": draft_page_id,
+            "title": javadoc_title,
             "url_hint": url_hint,
             "created_at": existing_entry.get("created_at", now) if isinstance(existing_entry, dict) else now,
             "updated_at": now,

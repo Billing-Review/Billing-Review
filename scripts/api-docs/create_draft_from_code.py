@@ -24,6 +24,7 @@ from lib.api_utils import (
     registry_path_for, registry_rel_for,
     read_service_config, build_env_url_section,
     extract_javadoc_and_params, parse_field_javadocs, format_doc_hints,
+    check_javadoc_completeness,
 )
 from lib.dooray import create_page, delete_page
 from lib.git_utils import git_commit_and_push
@@ -253,17 +254,27 @@ def main():
 
     # Javadoc 파싱
     doc_info = extract_javadoc_and_params(ctrl_file, http_method, path)
+    javadoc = doc_info.get("javadoc", {})
+    method_params = doc_info.get("method_params", {})
+
+    # 주석 완성도 검증
+    errors = check_javadoc_completeness(javadoc, method_params)
+    if errors:
+        print(f"[ERROR] [{http_method}] {path} — API 문서 주석이 불충분합니다:", file=sys.stderr)
+        for e in errors:
+            print(f"  • {e}", file=sys.stderr)
+        print(f"\n  작성 방법: shared-workflows/rest-api-docs/javadoc-guide.md 참조", file=sys.stderr)
+        sys.exit(1)
+
     all_field_docs = {}
     for rp in related:
         all_field_docs.update(parse_field_javadocs(rp))
-    doc_hints = format_doc_hints(
-        doc_info.get("javadoc", {}),
-        doc_info.get("method_params", {}),
-        all_field_docs,
-    )
+    doc_hints = format_doc_hints(javadoc, method_params, all_field_docs)
+
+    javadoc_title = javadoc.get("title", "")
+    javadoc_doc_url = javadoc.get("doc_url", "")
 
     # url_hint 우선순위: @docUrl > registry > 추론
-    javadoc_doc_url = doc_info.get("javadoc", {}).get("doc_url", "")
     url_hint = (
         javadoc_doc_url
         or (existing.get("url_hint", "") if isinstance(existing, dict) else "")
@@ -285,6 +296,7 @@ def main():
     prompt = f"""{system_prompt}
 
 **[중요] [{http_method}] {path} 엔드포인트 하나에 대한 API 문서만 작성하세요.**
+**문서의 첫 줄(H1)은 작성하지 마세요. 개요부터 시작하세요.**
 
 다음은 {repo_name} 레포지토리에서 [{http_method}] {path} API를 처리하는 코드입니다.
 {env_url_hint}
@@ -298,12 +310,16 @@ def main():
 {template}
 """
     print(f"[INFO] 문서 생성 중 (model={CLAUDE_MODEL})...")
-    doc_content = call_claude(prompt)
+    raw_content = call_claude(prompt)
+
+    # H1은 프로그래밍적으로 주입 ([METHOD] /path 형식)
+    body = re.sub(r'^\s*#(?!#)[^\n]+\n+', '', raw_content)
+    doc_content = f"# [{http_method}] {path}\n\n{body}"
 
     # Draft 생성
     is_update = isinstance(existing, dict) and existing.get("status") in ("published", "deprecated")
     prefix = "[API Draft][수정]" if is_update else "[API Draft][신규]"
-    title = f"{prefix} {http_method} {path}"
+    draft_title = f"{prefix} {javadoc_title}" if javadoc_title else f"{prefix} {http_method} {path}"
     full_content = (
         f"> **[Draft]** 자동 생성된 API 문서입니다. 검토 후 publish 하세요.\n"
         f"> 생성 시각: {now_kst_display()} | 위키 분류: {url_hint or '기본'}\n\n---\n\n"
@@ -312,7 +328,7 @@ def main():
 
     draft_page_id = create_page(
         dooray_api_key, DOORAY_WIKI_ID, DOORAY_DRAFT_PARENT_PAGE_ID,
-        title, full_content, base_url,
+        draft_title, full_content, base_url,
     )
     page_url = f"{web_url}/wiki/{DOORAY_PROJECT_ID}/{draft_page_id}"
     print(f"[INFO] Draft 생성 완료: {page_url}")
@@ -323,6 +339,7 @@ def main():
         **({} if not isinstance(existing, dict) else existing),
         "status": "draft",
         "draft_page_id": draft_page_id,
+        "title": javadoc_title,
         "url_hint": url_hint,
         "created_at": existing.get("created_at", now) if isinstance(existing, dict) else now,
         "updated_at": now,

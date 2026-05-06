@@ -116,7 +116,11 @@ def main():
 
     # draft 내용 가져오기 → Draft 메타 배너 제거
     draft_title, draft_content = get_page(dooray_api_key, wiki_id, draft_page_id, base_url)
-    publish_title = re.sub(r"^\[API Draft\](\[수정\]|\[신규\])?\s*", "", draft_title).strip()
+    # 위키 페이지 제목: registry의 title(Javadoc 제목) 우선, 없으면 draft 제목에서 prefix 제거
+    publish_title = (
+        entry.get("title")
+        or re.sub(r"^\[API Draft\](\[수정\]|\[신규\])?\s*", "", draft_title).strip()
+    )
     clean_content = strip_draft_meta(draft_content)
 
     existing_page_id = entry.get("page_id")

@@ -373,6 +373,31 @@ def parse_field_javadocs(filepath: str) -> dict:
     return result
 
 
+def check_javadoc_completeness(javadoc: dict, method_params: dict) -> list:
+    """Javadoc 필수 항목 누락 여부 검사. 오류 메시지 리스트 반환 (빈 리스트 = 통과)."""
+    errors = []
+
+    if not javadoc.get("title"):
+        errors.append("Javadoc 첫 줄에 API 제목이 없습니다\n  예) /**\\n   * Todo 단건 조회")
+
+    doc_url = javadoc.get("doc_url", "")
+    if doc_url not in ("internal", "external"):
+        errors.append(
+            "@docUrl 태그가 없거나 올바르지 않습니다 (internal 또는 external 중 하나여야 합니다)\n"
+            "  예) @docUrl external"
+        )
+
+    param_descs = javadoc.get("params", {})
+    for name, info in method_params.items():
+        if info["kind"] in ("path", "query") and not param_descs.get(name):
+            errors.append(
+                f"@param {name} 설명이 없습니다\n"
+                f"  예) @param {name} 이 파라미터에 대한 설명"
+            )
+
+    return errors
+
+
 def format_doc_hints(javadoc: dict, method_params: dict, field_docs: dict) -> str:
     """파싱된 Javadoc 정보를 Claude 프롬프트용 구조화 텍스트로 변환."""
     if not javadoc and not method_params and not field_docs:
