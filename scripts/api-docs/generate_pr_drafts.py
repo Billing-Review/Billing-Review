@@ -384,7 +384,7 @@ def infer_url_hint(path: str, code_content: str) -> str:
 def generate_doc(method: str, path: str, ctrl_file: str, full_diff: str,
                  pr_title: str, pr_body: str, existing_doc: str,
                  system_prompt: str, template: str,
-                 service_config: dict | None = None) -> str:
+                 service_config=None) -> str:
     method_code = extract_method_for_api(ctrl_file, method, path)
     related = find_related_files([ctrl_file])
     code_content = f"### [Controller] {ctrl_file}\n```java\n{method_code}\n```"
