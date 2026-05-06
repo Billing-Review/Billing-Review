@@ -10,28 +10,55 @@
   },
   "GET /external/api/todo-list/external/api/todo-list": {
     "status": "draft",
-    "draft_page_id": "4326381433921531740",
+    "draft_page_id": "4326408414259557909",
     "url_hint": "external",
     "created_at": "2026-05-06T15:27:37+09:00",
-    "updated_at": "2026-05-06T15:27:37+09:00",
+    "updated_at": "2026-05-06T16:21:13+09:00",
     "deprecated_at": null,
     "page_id": null
   },
   "PATCH /external/api/todo-list/{id}": {
     "status": "draft",
-    "draft_page_id": "4326381989346028758",
-    "url_hint": "external",
+    "draft_page_id": "4326409655807045675",
+    "url_hint": "external 지정한 ID의 Todo 항목을 수정합니다. fields 파라미터로 수정할 필드를 한정할 수 있으며, 미입력 시 전체 필드를 덮어씁니다.",
     "created_at": "2026-05-06T15:28:43+09:00",
-    "updated_at": "2026-05-06T15:28:43+09:00",
+    "updated_at": "2026-05-06T16:23:41+09:00",
     "deprecated_at": null,
     "page_id": null
   },
   "DELETE /external/api/todo-list/{id}": {
     "status": "draft",
-    "draft_page_id": "4326382107336441055",
-    "url_hint": "external",
+    "draft_page_id": "4326409789994762542",
+    "url_hint": "external 지정한 ID의 Todo 항목을 영구 삭제합니다. 삭제된 항목은 복구할 수 없습니다.",
     "created_at": "2026-05-06T15:28:57+09:00",
-    "updated_at": "2026-05-06T15:28:57+09:00",
+    "updated_at": "2026-05-06T16:23:57+09:00",
+    "deprecated_at": null,
+    "page_id": null
+  },
+  "GET /external/api/todo-list/{id}": {
+    "status": "draft",
+    "draft_page_id": "4326408784572855028",
+    "url_hint": "external 지정한 ID의 Todo 항목을 반환합니다. 존재하지 않는 ID 요청 시 404를 반환합니다.",
+    "created_at": "2026-05-06T16:21:57+09:00",
+    "updated_at": "2026-05-06T16:21:57+09:00",
+    "deprecated_at": null,
+    "page_id": null
+  },
+  "GET /external/api/todo-list/statistics": {
+    "status": "draft",
+    "draft_page_id": "4326409013502274557",
+    "url_hint": "external 전체 또는 필터링된 Todo의 상태별 집계를 반환합니다.",
+    "created_at": "2026-05-06T16:22:24+09:00",
+    "updated_at": "2026-05-06T16:22:24+09:00",
+    "deprecated_at": null,
+    "page_id": null
+  },
+  "POST /external/api/todo-list/create": {
+    "status": "draft",
+    "draft_page_id": "4326409322149609623",
+    "url_hint": "external 새로운 Todo 항목을 생성합니다. 생성된 항목의 초기 상태는 TODO입니다.",
+    "created_at": "2026-05-06T16:23:01+09:00",
+    "updated_at": "2026-05-06T16:23:01+09:00",
     "deprecated_at": null,
     "page_id": null
   }
