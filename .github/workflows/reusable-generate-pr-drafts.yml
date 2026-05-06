@@ -41,6 +41,7 @@ jobs:
         with:
           app-id: ${{ secrets.CODE_REVIEW_APP_ID }}
           private-key: ${{ secrets.CODE_REVIEW_APP_PRIVATE_KEY }}
+          owner: dev-billing
 
       - name: Checkout calling repo
         uses: actions/checkout@v4
