@@ -6,16 +6,10 @@ Draft 페이지를 본 위키로 publish합니다.
 Draft가 없으면 오류로 종료합니다 (코드에서 직접 생성하지 않음).
 
 환경 변수:
-  DOORAY_API_KEY                  Dooray API 토큰
-  DOORAY_WIKI_ID                  Dooray 위키 ID
-  DOORAY_PROJECT_ID               Dooray 프로젝트 ID
-  DOORAY_DRAFT_PARENT_PAGE_ID     Draft 부모 페이지 ID
-  DOORAY_INTERNAL_PARENT_PAGE_ID  사내 API 위키 부모 페이지 ID
-  DOORAY_EXTERNAL_PARENT_PAGE_ID  사외 API 위키 부모 페이지 ID
-  DOORAY_DEFAULT_PARENT_PAGE_ID   기본 위키 부모 페이지 ID
-  API_KEY                         레지스트리 키 (예: GET /api/v1/todos)
-  REPO_NAME                       서비스 저장소 이름 (org/repo)
-  DRAFT_PAGE_ID                   워크플로우 내부 전달용 (사용자 입력 불필요)
+  DOORAY_API_KEY   Dooray API 토큰
+  API_KEY          레지스트리 키 (예: GET /api/v1/todos)
+  REPO_NAME        서비스 저장소 이름 (org/repo)
+  DRAFT_PAGE_ID    워크플로우 내부 전달용 (사용자 입력 불필요)
 """
 
 import os
@@ -45,20 +39,10 @@ _DRAFT_META_RE = re.compile(
     re.MULTILINE,
 )
 
-_HISTORY_SECTION = "### 변경 이력"
-
 
 def strip_draft_meta(content: str) -> str:
     content = content.replace('\r\n', '\n')
     return _DRAFT_META_RE.sub("", content)
-
-
-def append_history_entry(content: str, entry: str) -> str:
-    """변경 이력 섹션 맨 아래에 항목을 추가한다. 섹션이 없으면 새로 만든다."""
-    content = content.rstrip()
-    if _HISTORY_SECTION in content:
-        return content + f"\n| {entry} |\n"
-    return content + f"\n\n---\n\n{_HISTORY_SECTION}\n\n| 날짜 | 내용 |\n|------|------|\n| {entry} |\n"
 
 
 def get_category_parent(url_hint: str) -> str:
@@ -75,8 +59,7 @@ def get_category_parent(url_hint: str) -> str:
     return parent
 
 
-def find_draft_in_dooray(dooray_api_key: str, wiki_id: str,
-                          draft_parent_id: str, base_url: str, api_key: str) -> str:
+def find_draft_in_dooray(dooray_api_key, wiki_id, draft_parent_id, base_url, api_key):
     if not draft_parent_id:
         return ""
     children = get_child_pages(dooray_api_key, wiki_id, draft_parent_id, base_url)
@@ -126,39 +109,24 @@ def main():
         draft_page_id = find_draft_in_dooray(dooray_api_key, wiki_id, draft_parent_id, base_url, api_key)
 
     if not draft_page_id:
-        print(f"[ERROR] draft가 없습니다. API Doc Publish 전에 draft를 먼저 생성하세요. (api_key={api_key})", file=sys.stderr)
+        print(f"[ERROR] draft가 없습니다. 먼저 draft를 생성하세요. (api_key={api_key})", file=sys.stderr)
         sys.exit(1)
 
     url_hint = entry.get("url_hint", "")
 
-    # draft 내용 가져오기
+    # draft 내용 가져오기 → Draft 메타 배너 제거
     draft_title, draft_content = get_page(dooray_api_key, wiki_id, draft_page_id, base_url)
     publish_title = re.sub(r"^\[API Draft\](\[수정\]|\[신규\])?\s*", "", draft_title).strip()
     clean_content = strip_draft_meta(draft_content)
 
     existing_page_id = entry.get("page_id")
 
-    today = now_kst_display()
-
-    # 위키 페이지 생성/업데이트
+    # 위키 페이지 생성 또는 교체
     if existing_page_id:
-        _, existing_content = get_page(dooray_api_key, wiki_id, existing_page_id, base_url)
-        existing_content = existing_content.replace('\r\n', '\n')
-        # 기존 변경 이력 섹션을 보존하고 새 내용에 이어붙임
-        if _HISTORY_SECTION in existing_content:
-            history_block = existing_content[existing_content.index(_HISTORY_SECTION):]
-            base_content = append_history_entry(clean_content, f"{today} | 수정 반영")
-            # 기존 이력 행들 이전 이력 유지: clean_content의 이력 섹션을 기존 이력으로 대체
-            if _HISTORY_SECTION in base_content:
-                base_content = base_content[:base_content.index(_HISTORY_SECTION)]
-            new_content = base_content.rstrip() + "\n\n" + history_block.rstrip() + f"\n| {today} | 수정 반영 |\n"
-        else:
-            new_content = append_history_entry(clean_content, f"{today} | 수정 반영")
-        update_page(dooray_api_key, wiki_id, existing_page_id, publish_title, new_content, base_url)
+        update_page(dooray_api_key, wiki_id, existing_page_id, publish_title, clean_content, base_url)
         final_page_id = existing_page_id
         action = "updated"
     else:
-        new_content = append_history_entry(clean_content, f"{today} | 최초 등록")
         category_parent = get_category_parent(url_hint)
         repo_page_id = get_repo_page_id(registry, url_hint)
         if not repo_page_id:
@@ -167,7 +135,7 @@ def main():
             )
             set_repo_page_id(registry, url_hint, repo_page_id)
         final_page_id = create_page(
-            dooray_api_key, wiki_id, repo_page_id, publish_title, new_content, base_url
+            dooray_api_key, wiki_id, repo_page_id, publish_title, clean_content, base_url
         )
         action = "created"
 
@@ -199,13 +167,4 @@ def main():
     page_url = f"{web_url}/wiki/{project_id}/{final_page_id}"
     set_output("page_id", final_page_id)
     set_output("page_url", page_url)
-
-    print(f"\n위키 반영 완료 ({action})")
-    print(f"  repo    : {repo_name}")
-    print(f"  API Key : {api_key}")
-    print(f"  제목    : {publish_title}")
-    print(f"  URL     : {page_url}")
-
-
-if __name__ == "__main__":
-    main()
+    print(f"[INFO] Publish 완료 ({action}): {page_url}")

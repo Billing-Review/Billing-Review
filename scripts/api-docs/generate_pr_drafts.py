@@ -30,6 +30,7 @@ from lib.api_utils import (
     normalize_api_key, now_kst_display, now_kst_iso, today_kst,
     read_service_config, build_env_url_section,
     read_registry, write_registry, registry_path_for, registry_rel_for,
+    extract_javadoc_and_params, parse_field_javadocs, format_doc_hints,
 )
 from lib.dooray import create_page, delete_page, get_page, update_page
 from lib.git_utils import git_commit_and_push
@@ -384,7 +385,7 @@ def infer_url_hint(path: str, code_content: str) -> str:
 def generate_doc(method: str, path: str, ctrl_file: str, full_diff: str,
                  pr_title: str, pr_body: str, existing_doc: str,
                  system_prompt: str, template: str,
-                 service_config=None) -> str:
+                 service_config=None, prev_doc: str = "") -> str:
     method_code = extract_method_for_api(ctrl_file, method, path)
     related = find_related_files([ctrl_file])
     code_content = f"### [Controller] {ctrl_file}\n```java\n{method_code}\n```"
@@ -392,19 +393,39 @@ def generate_doc(method: str, path: str, ctrl_file: str, full_diff: str,
         code_content += "\n\n" + read_files(related, "참조")
     file_diff = filter_diff_for_file(full_diff, ctrl_file)
 
-    env_url_section = build_env_url_section(service_config or {})
+    # Javadoc 파싱
+    doc_info = extract_javadoc_and_params(ctrl_file, method, path)
+    all_field_docs = {}
+    for rp in related:
+        all_field_docs.update(parse_field_javadocs(rp))
+    doc_hints = format_doc_hints(
+        doc_info.get("javadoc", {}),
+        doc_info.get("method_params", {}),
+        all_field_docs,
+    )
 
-    update_section = ""
-    if existing_doc:
-        update_section = f"""
+    # @docUrl → url_hint 우선 적용 (반환값으로 전달)
+    doc_info["_doc_url"] = doc_info.get("javadoc", {}).get("doc_url", "")
+
+    env_url_section = build_env_url_section(service_config or {})
+    env_url_hint = ""
+    if env_url_section:
+        env_url_hint = f"\n{env_url_section}\n위 서버 URL을 문서의 '서버 URL' 섹션에 반드시 포함하세요.\n"
+
+    # 기존 문서 컨텍스트 (수정 시) 또는 이전 URL 문서 (URL 변경 시)
+    ref_section = ""
+    if prev_doc:
+        ref_section = f"""
+## 이전 버전 문서 (URL이 변경된 API — 변경사항을 반영해 새 문서를 작성하세요)
+
+{prev_doc[:3000]}
+"""
+    elif existing_doc:
+        ref_section = f"""
 ## 기존 문서 (이미 등록된 API — 수정사항을 반영해 업데이트하세요)
 
 {existing_doc[:3000]}
 """
-
-    env_url_hint = ""
-    if env_url_section:
-        env_url_hint = f"\n{env_url_section}\n위 서버 URL을 문서의 '서버 URL' 섹션에 반드시 포함하세요.\n"
 
     prompt = f"""{system_prompt}
 
@@ -415,6 +436,8 @@ def generate_doc(method: str, path: str, ctrl_file: str, full_diff: str,
 PR 제목: {pr_title}
 PR 설명: {pr_body[:1000] if pr_body else "(없음)"}
 {env_url_hint}
+{doc_hints}
+
 ## 소스 코드
 {code_content}
 
@@ -422,13 +445,12 @@ PR 설명: {pr_body[:1000] if pr_body else "(없음)"}
 ```diff
 {file_diff[:MAX_DIFF_LENGTH]}
 ```
-{update_section}
-
+{ref_section}
 아래 템플릿 형식으로 API 문서를 작성하세요.
 
 {template}
 """
-    return call_claude(prompt)
+    return call_claude(prompt), doc_info.get("_doc_url", "")
 
 
 # ── Dooray draft 생성 ─────────────────────────────────────────────────────────
@@ -457,54 +479,42 @@ def create_draft(dooray_api_key: str, wiki_id: str, draft_parent_id: str,
 # ── @Deprecated 처리 ─────────────────────────────────────────────────────────
 
 def handle_deprecated(dooray_api_key: str, wiki_id: str, base_url: str,
-                      api_key: str, registry: dict) -> bool:
+                      api_key: str, registry: dict) -> tuple:
+    """API를 deprecated 처리하고 (성공여부, 이전페이지내용) 반환."""
     entry = registry.get(api_key)
     if not entry:
         print(f"[INFO] registry 미등록, deprecated 스킵: {api_key}")
-        return False
+        return False, ""
     if isinstance(entry, dict):
         if entry.get("status") == "deprecated":
             print(f"[INFO] 이미 deprecated: {api_key}")
-            return False
+            return False, ""
         page_id = entry.get("page_id", "")
     else:
         page_id = str(entry)
 
     if not page_id:
-        return False
+        return False, ""
 
     today = today_kst()
-    deprecated_marker = f"### @Deprecated({today})\n\n"
-    history_section = "### 변경 이력"
     try:
         title, content = get_page(dooray_api_key, wiki_id, page_id, base_url)
-        content = content.replace('\r\n', '\n')
-        new_content = content
+        content = content.replace("\r\n", "\n")
+        prev_content = content  # URL 변경 시 신규 draft 생성에 참조
 
-        # 상단 @Deprecated 마커 추가 (없을 때만)
         if "@Deprecated(" not in content:
-            new_content = deprecated_marker + new_content
+            new_content = f"### @Deprecated({today})\n\n" + content
+            update_page(dooray_api_key, wiki_id, page_id, title, new_content, base_url)
 
-        # 하단 변경 이력에 Deprecated 항목 추가
-        if history_section in new_content:
-            new_content = new_content.rstrip() + f"\n| {today} | Deprecated |\n"
-        else:
-            new_content = new_content.rstrip() + (
-                f"\n\n---\n\n{history_section}\n\n"
-                f"| 날짜 | 내용 |\n|------|------|\n"
-                f"| {today} | Deprecated |\n"
-            )
-
-        update_page(dooray_api_key, wiki_id, page_id, title, new_content, base_url)
         registry[api_key] = {
             **(entry if isinstance(entry, dict) else {"page_id": page_id}),
             "status": "deprecated",
             "deprecated_at": today,
         }
-        return True
+        return True, prev_content
     except Exception as e:
         print(f"[WARN] deprecated 처리 실패 {api_key}: {e}")
-        return False
+        return False, ""
 
 
 # ── main ─────────────────────────────────────────────────────────────────────
@@ -584,12 +594,22 @@ def main():
 
     draft_links = []
 
-    # ── 변경된 API: draft 생성 ─────────────────────────────────────────────
+    # ── 삭제된 API 먼저 deprecated 처리 (이전 문서 수집 → URL 변경 감지용) ──
+    deprecated_list = []
+    prev_docs_by_file = {}  # {ctrl_file: prev_doc_content} — URL 변경 시 참조
+    for api in deleted:
+        api_key = normalize_api_key(api["method"], api["path"])
+        ok, prev_content = handle_deprecated(dooray_api_key, wiki_id, base_url, api_key, registry)
+        if ok:
+            deprecated_list.append(api_key)
+            if prev_content and api.get("file"):
+                prev_docs_by_file[api["file"]] = prev_content
+
+    # ── 변경/신규 API: draft 생성 ─────────────────────────────────────────
     for api in changed:
         method, path, ctrl_file = api["method"], api["path"], api["file"]
         api_key = normalize_api_key(method, path)
 
-        # 기존 published 문서가 있으면 fetch (수정 컨텍스트 제공)
         existing_entry = registry.get(api_key, {})
         existing_doc = ""
         if isinstance(existing_entry, dict) and existing_entry.get("page_id"):
@@ -600,17 +620,23 @@ def main():
             except Exception:
                 existing_doc = ""
 
-        url_hint = (
-            existing_entry.get("url_hint", "") if isinstance(existing_entry, dict)
-            else infer_url_hint(path, "")
-        ) or infer_url_hint(path, ctrl_file)
+        # URL 변경 감지: 같은 파일에서 deprecated된 API가 있으면 이전 문서를 참조
+        prev_doc = prev_docs_by_file.get(ctrl_file, "")
 
         print(f"[INFO] 문서 생성 중: {api_key}")
-        doc_content = generate_doc(
+        doc_content, javadoc_doc_url = generate_doc(
             method, path, ctrl_file, full_diff,
             pr_title, pr_body, existing_doc,
             system_prompt, template,
             service_config=service_config,
+            prev_doc=prev_doc,
+        )
+
+        # url_hint 우선순위: @docUrl > registry > 추론
+        url_hint = (
+            javadoc_doc_url
+            or (existing_entry.get("url_hint", "") if isinstance(existing_entry, dict) else "")
+            or infer_url_hint(path, ctrl_file)
         )
 
         is_update = (
@@ -639,13 +665,6 @@ def main():
             registry[api_key]["page_id"] = None
 
         draft_links.append((api_key, draft_page_url, "수정" if is_update else "신규"))
-
-    # ── 삭제된 API: deprecated 처리 ───────────────────────────────────────
-    deprecated_list = []
-    for api in deleted:
-        api_key = normalize_api_key(api["method"], api["path"])
-        if handle_deprecated(dooray_api_key, wiki_id, base_url, api_key, registry):
-            deprecated_list.append(api_key)
 
     # ── registry 커밋 ─────────────────────────────────────────────────────
     if draft_links or deprecated_list:

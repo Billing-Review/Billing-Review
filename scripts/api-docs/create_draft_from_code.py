@@ -23,6 +23,7 @@ from lib.api_utils import (
     read_registry, write_registry, set_output,
     registry_path_for, registry_rel_for,
     read_service_config, build_env_url_section,
+    extract_javadoc_and_params, parse_field_javadocs, format_doc_hints,
 )
 from lib.dooray import create_page, delete_page
 from lib.git_utils import git_commit_and_push
@@ -250,9 +251,24 @@ def main():
         for rp in related:
             code_content += f"\n\n### [참조] {rp}\n```java\n{read_file(rp)}\n```"
 
+    # Javadoc 파싱
+    doc_info = extract_javadoc_and_params(ctrl_file, http_method, path)
+    all_field_docs = {}
+    for rp in related:
+        all_field_docs.update(parse_field_javadocs(rp))
+    doc_hints = format_doc_hints(
+        doc_info.get("javadoc", {}),
+        doc_info.get("method_params", {}),
+        all_field_docs,
+    )
+
+    # url_hint 우선순위: @docUrl > registry > 추론
+    javadoc_doc_url = doc_info.get("javadoc", {}).get("doc_url", "")
     url_hint = (
-        existing.get("url_hint", "") if isinstance(existing, dict) else ""
-    ) or infer_url_hint(path, ctrl_file)
+        javadoc_doc_url
+        or (existing.get("url_hint", "") if isinstance(existing, dict) else "")
+        or infer_url_hint(path, ctrl_file)
+    )
 
     # Claude로 문서 생성
     with open(SYSTEM_PROMPT_FILE, "r") as f:
@@ -272,6 +288,9 @@ def main():
 
 다음은 {repo_name} 레포지토리에서 [{http_method}] {path} API를 처리하는 코드입니다.
 {env_url_hint}
+{doc_hints}
+
+## 소스 코드
 {code_content}
 
 아래 템플릿 형식으로 API 문서를 작성하세요.
