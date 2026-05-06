@@ -1,1 +1,38 @@
-{}
+{
+  "POST /external/api/todo-list/{id}/complete": {
+    "status": "draft",
+    "draft_page_id": "4326381167876870853",
+    "url_hint": "external",
+    "created_at": "2026-05-06T15:27:05+09:00",
+    "updated_at": "2026-05-06T15:27:05+09:00",
+    "deprecated_at": null,
+    "page_id": null
+  },
+  "GET /external/api/todo-list/external/api/todo-list": {
+    "status": "draft",
+    "draft_page_id": "4326381433921531740",
+    "url_hint": "external",
+    "created_at": "2026-05-06T15:27:37+09:00",
+    "updated_at": "2026-05-06T15:27:37+09:00",
+    "deprecated_at": null,
+    "page_id": null
+  },
+  "PATCH /external/api/todo-list/{id}": {
+    "status": "draft",
+    "draft_page_id": "4326381989346028758",
+    "url_hint": "external",
+    "created_at": "2026-05-06T15:28:43+09:00",
+    "updated_at": "2026-05-06T15:28:43+09:00",
+    "deprecated_at": null,
+    "page_id": null
+  },
+  "DELETE /external/api/todo-list/{id}": {
+    "status": "draft",
+    "draft_page_id": "4326382107336441055",
+    "url_hint": "external",
+    "created_at": "2026-05-06T15:28:57+09:00",
+    "updated_at": "2026-05-06T15:28:57+09:00",
+    "deprecated_at": null,
+    "page_id": null
+  }
+}
