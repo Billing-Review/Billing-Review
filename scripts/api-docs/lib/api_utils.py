@@ -152,8 +152,6 @@ def _parse_javadoc(comment_text: str) -> dict:
             result["params"][cur_name] = text
         elif cur_tag == "return":
             result["returns"] = text
-        elif cur_tag == "docUrl":
-            result["doc_url"] = text
 
     for line in lines:
         if line.startswith("@"):
@@ -168,8 +166,8 @@ def _parse_javadoc(comment_text: str) -> dict:
                 cur_tag, cur_name = "return", None
                 cur_buf = [parts[1]] if len(parts) > 1 else []
             elif tag == "docUrl":
-                cur_tag, cur_name = "docUrl", None
-                cur_buf = [parts[1]] if len(parts) > 1 else []
+                result["doc_url"] = parts[1] if len(parts) > 1 else ""
+                cur_tag, cur_name = None, None  # 단일 값 태그 — 이후 줄은 누적하지 않음
             else:
                 cur_tag, cur_name = None, None
         elif cur_tag is not None:
