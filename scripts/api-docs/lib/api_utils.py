@@ -96,10 +96,11 @@ def set_repo_page_id(registry: dict, url_hint: str, page_id: str):
 
 
 def read_service_config(repo_short_name: str) -> dict:
-    path = os.path.join("shared-config", "rest-api-docs", repo_short_name, "service-config.json")
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+    # 통합 service-config.json 우선 사용 (rest-api-docs/service-config.json)
+    consolidated = os.path.join("shared-config", "rest-api-docs", "service-config.json")
+    if os.path.exists(consolidated):
+        with open(consolidated, "r", encoding="utf-8") as f:
+            return json.load(f).get(repo_short_name, {})
     return {}
 
 
@@ -129,7 +130,7 @@ def _parse_javadoc(comment_text: str) -> dict:
         description : 태그 이전의 나머지 본문
         params      : {'paramName': '설명'}
         returns     : @return 설명
-        doc_url     : @docUrl 값 (internal | external | '')
+        doc_url     : @apiScope 값 (internal | external | '')
     """
     result = {"title": "", "description": "", "params": {}, "returns": "", "doc_url": ""}
 
@@ -165,8 +166,8 @@ def _parse_javadoc(comment_text: str) -> dict:
             elif tag in ("return", "returns"):
                 cur_tag, cur_name = "return", None
                 cur_buf = [parts[1]] if len(parts) > 1 else []
-            elif tag == "docUrl":
-                result["doc_url"] = parts[1] if len(parts) > 1 else ""
+            elif tag == "apiScope":
+                result["doc_url"] = parts[1].strip() if len(parts) > 1 else ""
                 cur_tag, cur_name = None, None  # 단일 값 태그 — 이후 줄은 누적하지 않음
             else:
                 cur_tag, cur_name = None, None
@@ -383,8 +384,8 @@ def check_javadoc_completeness(javadoc: dict, method_params: dict) -> list:
     doc_url = javadoc.get("doc_url", "")
     if doc_url not in ("internal", "external"):
         errors.append(
-            "@docUrl 태그가 없거나 올바르지 않습니다 (internal 또는 external 중 하나여야 합니다)\n"
-            "  예) @docUrl external"
+            "@apiScope 태그가 없거나 올바르지 않습니다 (internal 또는 external 중 하나여야 합니다)\n"
+            "  예) @apiScope external"
         )
 
     param_descs = javadoc.get("params", {})

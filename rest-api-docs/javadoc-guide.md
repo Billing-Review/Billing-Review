@@ -10,7 +10,7 @@
 ```java
 /**
  * [1] API 제목 (필수) — 위키 페이지 이름으로 사용됩니다
- * @docUrl [2] external | internal  (필수)
+ * @apiScope [2] external | internal  (필수)
  *
  * [3] API 상세 설명 (선택) — 동작 방식, 예외 케이스 등
  *
@@ -22,7 +22,7 @@
 | 번호 | 항목 | 필수 | 설명 |
 |------|------|------|------|
 | 1 | API 제목 | ✅ | 첫 번째 비어있지 않은 줄. 위키 페이지 제목이 됩니다 |
-| 2 | `@docUrl` | ✅ | `external` (사외) 또는 `internal` (사내) |
+| 2 | `@apiScope` | ✅ | `external` (사외) 또는 `internal` (사내) |
 | 3 | 상세 설명 | - | 빈 줄 이후 본문. Claude에게 추가 컨텍스트 제공 |
 | 4 | `@param` | ✅* | `@PathVariable`, `@RequestParam` 파라미터는 필수 |
 | 5 | `@return` | - | 응답 내용 설명 |
@@ -34,7 +34,7 @@
 ```java
 /**
  * Todo 단건 조회
- * @docUrl external
+ * @apiScope external
  *
  * 지정한 ID의 Todo 항목을 반환합니다.
  * 존재하지 않는 ID 요청 시 404를 반환합니다.
@@ -47,7 +47,7 @@ public TodoResponse getById(@PathVariable Long id) { ... }
 
 /**
  * Todo 목록 조회
- * @docUrl external
+ * @apiScope external
  *
  * @param status 필터링할 상태값 (TODO / IN_PROGRESS / DONE), 미입력 시 전체
  * @param page 페이지 번호 (0-based)
@@ -60,7 +60,7 @@ public Page<TodoResponse> findAll(
 
 /**
  * Todo 생성
- * @docUrl external
+ * @apiScope external
  *
  * @param request 생성할 Todo 정보
  * @return 생성된 Todo 정보
@@ -127,7 +127,7 @@ public class TodoResponse {
 | 항목 | 조건 |
 |------|------|
 | API 제목 | Javadoc 첫 줄이 비어있으면 실패 |
-| `@docUrl` | `internal` 또는 `external` 중 하나여야 함 |
+| `@apiScope` | `internal` 또는 `external` 중 하나여야 함 |
 | `@param` | `@PathVariable`, `@RequestParam` 파라미터 각각 필요 |
 
 실패 시 Actions 로그에 누락 항목이 명시됩니다.
@@ -135,6 +135,6 @@ public class TodoResponse {
 ```
 [ERROR] [GET] /api/v1/todos/{id} — API 문서 주석이 불충분합니다:
   • Javadoc 첫 줄에 API 제목이 없습니다
-  • @docUrl 태그가 없거나 올바르지 않습니다
+  • @apiScope 태그가 없거나 올바르지 않습니다
   • @param id 설명이 없습니다
 ```

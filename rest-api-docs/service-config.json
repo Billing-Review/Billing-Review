@@ -1,0 +1,8 @@
+{
+  "todo-service": {
+    "environments": {
+      "Alpha": "https://alpha-todo.example.com",
+      "Real": "https://todo.example.com"
+    }
+  }
+}

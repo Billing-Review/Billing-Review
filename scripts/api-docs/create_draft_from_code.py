@@ -263,7 +263,7 @@ def main():
         print(f"[ERROR] [{http_method}] {path} — API 문서 주석이 불충분합니다:", file=sys.stderr)
         for e in errors:
             print(f"  • {e}", file=sys.stderr)
-        print(f"\n  작성 방법: shared-workflows/rest-api-docs/javadoc-guide.md 참조", file=sys.stderr)
+        print(f"  작성 방법: shared-workflows/rest-api-docs/javadoc-guide.md 참조", file=sys.stderr)
         sys.exit(1)
 
     all_field_docs = {}
