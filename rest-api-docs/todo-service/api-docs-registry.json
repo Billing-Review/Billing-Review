@@ -18,5 +18,15 @@
     "updated_at": "2026-05-19T09:56:12+09:00",
     "deprecated_at": null,
     "page_id": null
+  },
+  "DELETE /external/api/todo-list/{id}": {
+    "status": "draft",
+    "draft_page_id": "4335852816488490806",
+    "title": "Todo 삭제",
+    "url_hint": "external",
+    "created_at": "2026-05-19T17:05:33+09:00",
+    "updated_at": "2026-05-19T17:05:33+09:00",
+    "deprecated_at": null,
+    "page_id": null
   }
 }
