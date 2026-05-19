@@ -10,7 +10,7 @@
 ```java
 /**
  * [1] API 제목 (필수) — 위키 페이지 이름으로 사용됩니다
- * @apiScope [2] external | internal  (필수)
+ * @apiScope [2] external | internal | private  (필수)
  *
  * [3] API 상세 설명 (선택) — 동작 방식, 예외 케이스 등
  *
@@ -22,7 +22,7 @@
 | 번호 | 항목 | 필수 | 설명 |
 |------|------|------|------|
 | 1 | API 제목 | ✅ | 첫 번째 비어있지 않은 줄. 위키 페이지 제목이 됩니다 |
-| 2 | `@apiScope` | ✅ | `external` (사외) 또는 `internal` (사내) |
+| 2 | `@apiScope` | ✅ | `external` (사외), `internal` (사내 시스템 간), `private` (팀 내부 전용) |
 | 3 | 상세 설명 | - | 빈 줄 이후 본문. Claude에게 추가 컨텍스트 제공 |
 | 4 | `@param` | ✅* | `@PathVariable`, `@RequestParam` 파라미터는 필수 |
 | 5 | `@return` | - | 응답 내용 설명 |
@@ -127,7 +127,7 @@ public class TodoResponse {
 | 항목 | 조건 |
 |------|------|
 | API 제목 | Javadoc 첫 줄이 비어있으면 실패 |
-| `@apiScope` | `internal` 또는 `external` 중 하나여야 함 |
+| `@apiScope` | `internal` / `external` / `private` 중 하나여야 함 |
 | `@param` | `@PathVariable`, `@RequestParam` 파라미터 각각 필요 |
 
 실패 시 Actions 로그에 누락 항목이 명시됩니다.

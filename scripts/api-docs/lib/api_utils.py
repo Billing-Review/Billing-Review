@@ -382,9 +382,9 @@ def check_javadoc_completeness(javadoc: dict, method_params: dict) -> list:
         errors.append("Javadoc 첫 줄에 API 제목이 없습니다\n  예) /**\\n   * Todo 단건 조회")
 
     doc_url = javadoc.get("doc_url", "")
-    if doc_url not in ("internal", "external"):
+    if doc_url not in ("internal", "external", "private"):
         errors.append(
-            "@apiScope 태그가 없거나 올바르지 않습니다 (internal 또는 external 중 하나여야 합니다)\n"
+            "@apiScope 태그가 없거나 올바르지 않습니다 (internal / external / private 중 하나여야 합니다)\n"
             "  예) @apiScope external"
         )
 

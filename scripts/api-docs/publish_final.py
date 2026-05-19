@@ -50,7 +50,7 @@ def get_category_parent(url_hint: str) -> str:
         parent = DOORAY_INTERNAL_PARENT_PAGE_ID
     elif url_hint == "external":
         parent = DOORAY_EXTERNAL_PARENT_PAGE_ID
-    else:
+    else:  # private 또는 미지정 → 빌링서비스실 내부
         parent = DOORAY_DEFAULT_PARENT_PAGE_ID
     parent = parent or DOORAY_DEFAULT_PARENT_PAGE_ID
     if not parent:
