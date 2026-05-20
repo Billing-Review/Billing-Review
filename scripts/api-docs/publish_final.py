@@ -39,10 +39,19 @@ _DRAFT_META_RE = re.compile(
     re.MULTILINE,
 )
 
+# 문서 하단의 검토자용 '### 확인사항' 섹션 (구분선 포함) 을 제거.
+# 형식은 lib/api_utils.py 의 REVIEW_CHECKLIST 와 동일해야 한다.
+_REVIEW_CHECKLIST_RE = re.compile(
+    r'\n+---\n+###\s*확인사항\b.*\Z',
+    re.DOTALL,
+)
+
 
 def strip_draft_meta(content: str) -> str:
     content = content.replace('\r\n', '\n')
-    return _DRAFT_META_RE.sub("", content)
+    content = _DRAFT_META_RE.sub("", content)
+    content = _REVIEW_CHECKLIST_RE.sub("", content)
+    return content.rstrip() + "\n"
 
 
 def get_category_parent(url_hint: str) -> str:
