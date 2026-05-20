@@ -462,6 +462,15 @@ body {
   border-radius: 6px;
   background: var(--bg);
 }
+.form-row--api-draft {
+  grid-template-columns: auto 100px auto 1fr auto 140px auto;
+}
+.form-row__label {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+  white-space: nowrap;
+}
 .form-row select,
 .form-row input {
   padding: 6px 10px;

@@ -67,3 +67,12 @@ export const REPO_WHITELIST = null;
 
 // 레포 목록 정렬 기준: "updated" | "name" | "created"
 export const REPO_SORT = "updated";
+
+// =============================================================
+// REST API Docs 워크플로우 dispatch 기본값
+// =============================================================
+// 워크플로우 YAML 을 읽고 실행할 브랜치 (워크플로우 파일이 항상 존재해야 함)
+export const API_DOCS_WORKFLOW_REF = "develop";
+
+// Draft 생성 시 컨트롤러 "소스 코드"를 읽을 기본 브랜치
+export const API_DOCS_CODE_BRANCH_DEFAULT = "master";

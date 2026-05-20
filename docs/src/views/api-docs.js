@@ -1,8 +1,11 @@
 import { h, mount, clear } from "../utils/dom.js";
 import { readRegistry, entriesOf, parseApiKey } from "../api/registry.js";
 import { dispatchWorkflow } from "../api/workflows.js";
-import { getRepo } from "../api/repos.js";
-import { ORG } from "../config.js";
+import {
+  ORG,
+  API_DOCS_WORKFLOW_REF,
+  API_DOCS_CODE_BRANCH_DEFAULT,
+} from "../config.js";
 import { toast } from "../utils/toast.js";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
@@ -21,14 +24,8 @@ export async function renderApiDocs(root, repoName) {
   );
 
   let registry = {};
-  let defaultBranch = "develop";
   try {
-    const [reg, repoMeta] = await Promise.all([
-      readRegistry(repoName),
-      getRepo(ORG, repoName).catch(() => null),
-    ]);
-    registry = reg;
-    if (repoMeta && repoMeta.default_branch) defaultBranch = repoMeta.default_branch;
+    registry = await readRegistry(repoName);
   } catch (err) {
     toast(`로드 실패: ${err.message}`, "error", 5000);
   }
@@ -41,7 +38,7 @@ export async function renderApiDocs(root, repoName) {
     ? h(
         "ul",
         { class: "api-list" },
-        ...drafts.map(([apiKey, meta]) => renderDraftRow(apiKey, meta, repoName, defaultBranch))
+        ...drafts.map(([apiKey, meta]) => renderDraftRow(apiKey, meta, repoName))
       )
     : h("div", { class: "empty" }, "Draft 없음");
 
@@ -64,10 +61,10 @@ export async function renderApiDocs(root, repoName) {
     type: "text",
     placeholder: "/api/v1/...",
   });
-  const branchInput = h("input", {
+  const codeBranchInput = h("input", {
     type: "text",
-    value: defaultBranch,
-    placeholder: "branch",
+    value: API_DOCS_CODE_BRANCH_DEFAULT,
+    placeholder: API_DOCS_CODE_BRANCH_DEFAULT,
   });
   const createBtn = h(
     "button",
@@ -80,19 +77,23 @@ export async function renderApiDocs(root, repoName) {
           return;
         }
         const apiKey = `${methodSel.value} ${path}`;
+        const codeBranch = codeBranchInput.value.trim() || API_DOCS_CODE_BRANCH_DEFAULT;
         createBtn.disabled = true;
         createBtn.textContent = "트리거 중...";
         try {
           await dispatchWorkflow(
             repoName,
             "api-doc-create-draft.yml",
-            branchInput.value || defaultBranch,
+            API_DOCS_WORKFLOW_REF,           // 워크플로우 YAML 기준 (고정)
             {
               api_key: apiKey,
-              branch: branchInput.value || defaultBranch,
+              branch: codeBranch,            // 코드를 읽을 브랜치
             }
           );
-          toast(`Draft 생성 트리거됨: ${apiKey}`, "success");
+          toast(
+            `Draft 생성 트리거됨: ${apiKey} (코드: ${codeBranch})`,
+            "success"
+          );
         } catch (err) {
           toast(`실패: ${err.message}`, "error", 5000);
         } finally {
@@ -121,13 +122,33 @@ export async function renderApiDocs(root, repoName) {
         )
       ),
 
-      h("div", { class: "section-title" }, "Draft 생성"),
       h(
         "div",
-        { class: "form-row" },
+        { class: "section-title" },
+        "Draft 생성",
+        h(
+          "span",
+          {
+            style: {
+              marginLeft: "10px",
+              fontSize: "11px",
+              fontWeight: "normal",
+              color: "var(--text-muted)",
+              fontFamily: "monospace",
+            },
+          },
+          `workflow: ${API_DOCS_WORKFLOW_REF} (고정)`
+        )
+      ),
+      h(
+        "div",
+        { class: "form-row form-row--api-draft" },
+        h("label", { class: "form-row__label" }, "Method"),
         methodSel,
+        h("label", { class: "form-row__label" }, "Path"),
         pathInput,
-        branchInput,
+        h("label", { class: "form-row__label" }, "코드 브랜치"),
+        codeBranchInput,
         createBtn
       ),
 
@@ -148,7 +169,7 @@ export async function renderApiDocs(root, repoName) {
   );
 }
 
-function renderDraftRow(apiKey, meta, repoName, defaultBranch) {
+function renderDraftRow(apiKey, meta, repoName) {
   const { method, path } = parseApiKey(apiKey);
   const publishBtn = h(
     "button",
@@ -158,7 +179,7 @@ function renderDraftRow(apiKey, meta, repoName, defaultBranch) {
         publishBtn.disabled = true;
         publishBtn.textContent = "트리거 중...";
         try {
-          await dispatchWorkflow(repoName, "api-doc-publish.yml", defaultBranch, {
+          await dispatchWorkflow(repoName, "api-doc-publish.yml", API_DOCS_WORKFLOW_REF, {
             api_key: apiKey,
           });
           toast(`Publish 트리거됨: ${apiKey}`, "success");
