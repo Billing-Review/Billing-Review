@@ -22,13 +22,19 @@
 
 ## API Info
 
-* Domain
-    * 알파 : (service-config.json 의 Alpha 환경 URL)
-    * 베타 : (해당 시. service-config 에 없으면 생략)
-    * 리얼 : (service-config.json 의 Real 환경 URL)
-* Path : (예: `/external/api/todo-list/{id}`)
-* Method : (예: `POST` / `GET` / `DELETE` / `PUT` / `PATCH`)
-* Content-Type : `application/json`
+| 항목 | 값 |
+| --- | --- |
+| Path | (예: `/external/api/todo-list/{id}`) |
+| Method | (예: `POST` / `GET` / `DELETE` / `PUT` / `PATCH`) |
+| Content-Type | `application/json` |
+
+**Domain** (service-config.json 에 정의된 환경만 행으로 추가)
+
+| 환경 | URL |
+| --- | --- |
+| 알파 | (service-config.json 의 Alpha 환경 URL) |
+| 베타 | (해당 시. service-config 에 없으면 행 생략) |
+| 리얼 | (service-config.json 의 Real 환경 URL) |
 
 ## Request
 
