@@ -31,7 +31,7 @@ from lib.api_utils import (
     read_service_config, build_env_url_section,
     read_registry, write_registry, registry_path_for, registry_rel_for,
     extract_javadoc_and_params, parse_field_javadocs, format_doc_hints,
-    check_javadoc_completeness,
+    check_javadoc_completeness, build_doc_header, REVIEW_CHECKLIST,
 )
 from lib.dooray import create_page, delete_page, get_page, update_page
 from lib.git_utils import git_commit_and_push
@@ -461,9 +461,10 @@ PR 설명: {pr_body[:1000] if pr_body else "(없음)"}
 """
     raw_content = call_claude(prompt)
 
-    # H1은 프로그래밍적으로 주입 ([METHOD] /path 형식)
+    # H1 + 부제는 프로그래밍적으로 주입 ([{scope}] {title} + `METHOD` `path`)
     body = re.sub(r'^\s*#(?!#)[^\n]+\n+', '', raw_content)
-    doc_content = f"# [{method}] {path}\n\n{body}"
+    header = build_doc_header(method, path, javadoc_title, javadoc_doc_url)
+    doc_content = f"{header}{body}{REVIEW_CHECKLIST}"
 
     return doc_content, javadoc_doc_url, javadoc_title
 

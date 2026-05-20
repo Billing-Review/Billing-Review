@@ -399,6 +399,56 @@ def check_javadoc_completeness(javadoc: dict, method_params: dict) -> list:
     return errors
 
 
+# ── 문서 헤더/푸터 헬퍼 ───────────────────────────────────────────────────────
+SCOPE_LABEL = {
+    "external": "사외",
+    "internal": "사내",
+    "private": "내부",
+}
+
+
+def build_doc_header(method: str, path: str, javadoc_title: str, scope: str) -> str:
+    """문서 최상단 헤더 생성.
+
+    예시:
+        # [사외] 결제 처리
+
+        `POST` `/api/payments`
+
+    scope가 비어있거나 알 수 없는 값이면 라벨을 생략하고 제목만 사용.
+    """
+    label = SCOPE_LABEL.get((scope or "").lower())
+    title = (javadoc_title or "").strip()
+    if title and label:
+        h1 = f"# [{label}] {title}"
+    elif title:
+        h1 = f"# {title}"
+    elif label:
+        h1 = f"# [{label}] {method} {path}"
+    else:
+        h1 = f"# [{method}] {path}"
+    subtitle = f"`{method}` `{path}`"
+    return f"{h1}\n\n{subtitle}\n\n"
+
+
+REVIEW_CHECKLIST = """
+
+---
+
+### 확인사항
+
+> publish 전 아래 항목을 검토해주세요. 필요시 자유롭게 수정 후 publish 하세요.
+
+- [ ] **API 제목** 이 사용자에게 명확한가요?
+- [ ] **위키 분류** (사외/사내/내부) 가 정확한가요?
+- [ ] **요청/응답 예시** 의 필드/타입/예시값이 실제 코드와 일치하나요?
+- [ ] **필수/선택** 표시가 정확한가요?
+- [ ] **서버 URL** 이 환경별로 모두 포함되어 있나요?
+- [ ] **에러 응답** 케이스가 누락 없이 명시되어 있나요?
+- [ ] **추가 설명** 이 필요한 비즈니스 규칙/제약이 있나요?
+"""
+
+
 def format_doc_hints(javadoc: dict, method_params: dict, field_docs: dict) -> str:
     """파싱된 Javadoc 정보를 Claude 프롬프트용 구조화 텍스트로 변환."""
     if not javadoc and not method_params and not field_docs:
