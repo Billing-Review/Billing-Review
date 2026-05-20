@@ -11,11 +11,11 @@
   },
   "PATCH /external/api/todo-list/{id}": {
     "status": "draft",
-    "draft_page_id": "4335636731788584530",
+    "draft_page_id": "4336509564022824886",
     "title": "Todo 수정",
     "url_hint": "external",
     "created_at": "2026-05-19T09:56:12+09:00",
-    "updated_at": "2026-05-19T09:56:12+09:00",
+    "updated_at": "2026-05-20T14:50:24+09:00",
     "deprecated_at": null,
     "page_id": null
   },
