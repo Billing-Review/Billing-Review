@@ -431,6 +431,18 @@ def build_doc_header(method: str, path: str, javadoc_title: str, scope: str) -> 
     return f"{h1}\n\n{subtitle}\n\n"
 
 
+def strip_pre_h2(text: str) -> str:
+    """Claude 출력에서 첫 `## ` 헤딩 이전의 모든 텍스트를 제거.
+
+    H1, 부제, 인사말("코드 분석이 완료되었습니다"), 빈 줄 등 본문 시작
+    이전의 모든 사전 텍스트를 잘라낸다. 첫 H2 가 없으면 원본 그대로 반환.
+    """
+    if not text:
+        return text
+    m = re.search(r'^## ', text, re.MULTILINE)
+    return text[m.start():] if m else text
+
+
 REVIEW_CHECKLIST = """
 
 ---

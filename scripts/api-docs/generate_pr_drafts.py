@@ -32,6 +32,7 @@ from lib.api_utils import (
     read_registry, write_registry, registry_path_for, registry_rel_for,
     extract_javadoc_and_params, parse_field_javadocs, format_doc_hints,
     check_javadoc_completeness, build_doc_header, REVIEW_CHECKLIST,
+    strip_pre_h2,
 )
 from lib.dooray import create_page, delete_page, get_page, update_page
 from lib.git_utils import git_commit_and_push
@@ -438,7 +439,8 @@ def generate_doc(method: str, path: str, ctrl_file: str, full_diff: str,
     prompt = f"""{system_prompt}
 
 **[중요] [{method}] {path} 엔드포인트 하나에 대한 API 문서만 작성하세요. 같은 컨트롤러의 다른 엔드포인트는 포함하지 마세요.**
-**문서의 첫 줄(H1)은 작성하지 마세요. 개요부터 시작하세요.**
+**문서의 출력은 반드시 `## Description` 으로 시작해야 합니다.**
+**H1, 부제(`` `METHOD` `URL` ``), 인사말, "코드 분석이 완료되었습니다" 같은 사전 멘트를 어떤 경우에도 출력하지 마세요. 어떠한 설명·서론도 없이 곧바로 `## Description` 헤더부터 시작합니다.**
 
 다음은 [{method}] {path} API에 대한 코드와 PR 변경사항입니다.
 
@@ -461,8 +463,9 @@ PR 설명: {pr_body[:1000] if pr_body else "(없음)"}
 """
     raw_content = call_claude(prompt)
 
-    # H1 + 부제는 프로그래밍적으로 주입 ([{scope}] {title} + `METHOD` `path`)
-    body = re.sub(r'^\s*#(?!#)[^\n]+\n+', '', raw_content)
+    # 첫 H2(`## `) 이전의 모든 텍스트(서두/H1/부제/Claude 멘트 등) 제거.
+    # 시스템이 헤더(H1 + 부제)와 푸터(확인사항)를 항상 주입한다.
+    body = strip_pre_h2(raw_content)
     header = build_doc_header(method, path, javadoc_title, javadoc_doc_url)
     doc_content = f"{header}{body}{REVIEW_CHECKLIST}"
 

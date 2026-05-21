@@ -25,6 +25,7 @@ from lib.api_utils import (
     read_service_config, build_env_url_section,
     extract_javadoc_and_params, parse_field_javadocs, format_doc_hints,
     check_javadoc_completeness, build_doc_header, REVIEW_CHECKLIST,
+    strip_pre_h2,
 )
 from lib.dooray import create_page, delete_page
 from lib.git_utils import git_commit_and_push
@@ -296,7 +297,8 @@ def main():
     prompt = f"""{system_prompt}
 
 **[중요] [{http_method}] {path} 엔드포인트 하나에 대한 API 문서만 작성하세요.**
-**문서의 첫 줄(H1)은 작성하지 마세요. 개요부터 시작하세요.**
+**문서의 출력은 반드시 `## Description` 으로 시작해야 합니다.**
+**H1, 부제(`` `METHOD` `URL` ``), 인사말, "코드 분석이 완료되었습니다" 같은 사전 멘트를 어떤 경우에도 출력하지 마세요. 어떠한 설명·서론도 없이 곧바로 `## Description` 헤더부터 시작합니다.**
 
 다음은 {repo_name} 레포지토리에서 [{http_method}] {path} API를 처리하는 코드입니다.
 {env_url_hint}
@@ -312,8 +314,8 @@ def main():
     print(f"[INFO] 문서 생성 중 (model={CLAUDE_MODEL})...")
     raw_content = call_claude(prompt)
 
-    # H1 + 부제는 프로그래밍적으로 주입 ([{scope}] {title} + `METHOD` `path`)
-    body = re.sub(r'^\s*#(?!#)[^\n]+\n+', '', raw_content)
+    # 첫 H2(`## `) 이전의 모든 텍스트(서두/H1/부제/Claude 멘트 등) 제거.
+    body = strip_pre_h2(raw_content)
     header = build_doc_header(http_method, path, javadoc_title, javadoc_doc_url)
     doc_content = f"{header}{body}{REVIEW_CHECKLIST}"
 
