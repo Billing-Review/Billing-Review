@@ -4,5 +4,12 @@
       "Alpha": "https://alpha-todo.example.com",
       "Real": "https://todo.example.com"
     }
+  },
+  "payment-service": {
+    "environments": {
+      "Alpha": "https://alpha-payment.example.com",
+      "Beta": "https://beta-payment.example.com",
+      "Real": "https://payment.example.com"
+    }
   }
 }
