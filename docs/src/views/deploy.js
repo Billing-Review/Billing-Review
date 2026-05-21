@@ -155,9 +155,12 @@ export async function renderDeploy(root, featureId /* optional */) {
 
   applyBtn.addEventListener("click", async () => {
     if (selectedRepos.size === 0 || running) return;
+    const extraNote = feature.extraSetup === "service-config"
+      ? "\n\n⚠ service-config 등록(환경 URL)은 일괄 적용에서 처리되지 않습니다.\n각 레포의 [레포 관리] → [재적용] 으로 환경 URL을 별도 등록하세요."
+      : "";
     if (
       !confirm(
-        `${selectedRepos.size}개 레포에 "${feature.label}"을(를) 적용합니다.\n계속하시겠습니까?`
+        `${selectedRepos.size}개 레포에 "${feature.label}"을(를) 적용합니다.${extraNote}\n\n계속하시겠습니까?`
       )
     )
       return;

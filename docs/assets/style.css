@@ -212,6 +212,30 @@ body {
 }
 .missing-list a:hover { background: #ddf4ff; color: var(--primary); }
 
+/* ── Apply modal env form ─────────────────────────── */
+.env-form {
+  margin-top: 8px;
+}
+.env-row {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.env-row__label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+.env-row input {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: monospace;
+}
+
 /* ── Deploy view ───────────────────────────────────── */
 .deploy-list {
   border: 1px solid var(--border);

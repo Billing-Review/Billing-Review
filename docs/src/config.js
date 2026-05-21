@@ -55,7 +55,17 @@ export const FEATURES = [
       { file: "api-doc-publish.yml", label: "Publish" },
       { file: "api-doc-create-draft.yml", label: "Create Draft" },
     ],
+    // 적용 시 추가로 입력받을 정보. 'service-config' 타입은 shared-workflows 의
+    // rest-api-docs/service-config.json 에 환경별 URL 을 등록한다.
+    extraSetup: "service-config",
   },
+];
+
+// service-config.json 에 항상 받을 환경 목록 (필수/선택)
+export const SERVICE_CONFIG_ENVIRONMENTS = [
+  { key: "Alpha", required: true,  placeholder: "https://alpha-{service}.example.com" },
+  { key: "Beta",  required: false, placeholder: "https://beta-{service}.example.com" },
+  { key: "Real",  required: true,  placeholder: "https://{service}.example.com" },
 ];
 
 // =============================================================
@@ -72,7 +82,7 @@ export const REPO_SORT = "updated";
 // REST API Docs 워크플로우 dispatch 기본값
 // =============================================================
 // 워크플로우 YAML 을 읽고 실행할 브랜치 (워크플로우 파일이 항상 존재해야 함)
-export const API_DOCS_WORKFLOW_REF = "develop";
+export const API_DOCS_WORKFLOW_REF = "main";
 
 // Draft 생성 시 컨트롤러 "소스 코드"를 읽을 기본 브랜치
-export const API_DOCS_CODE_BRANCH_DEFAULT = "master";
+export const API_DOCS_CODE_BRANCH_DEFAULT = "main";
