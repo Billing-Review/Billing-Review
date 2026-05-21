@@ -374,6 +374,53 @@ def parse_field_javadocs(filepath: str) -> dict:
     return result
 
 
+def parse_enum_constants(filepath: str) -> dict:
+    """파일이 enum 이면 enum 이름과 상수 목록(+선택적 description) 을 반환.
+
+    Returns:
+        {'EnumName': {'constants': [{'name': str, 'description': str}, ...]}}
+        enum 이 아니거나 파싱 실패면 {}.
+
+    다음 두 형식을 지원한다:
+        enum X { A, B, C }
+        enum X { A("desc"), B("desc"), C("desc") }
+    """
+    try:
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+    except OSError:
+        return {}
+
+    # public enum Foo { ... }
+    enum_re = re.compile(
+        r'(?:public\s+|private\s+|protected\s+)?enum\s+(\w+)\s*\{(.*?)\}',
+        re.DOTALL,
+    )
+    result = {}
+    for m in enum_re.finditer(content):
+        name = m.group(1)
+        body = m.group(2)
+        # body 의 첫 ';' 까지가 상수 정의 영역
+        constants_block = body.split(";", 1)[0]
+        const_re = re.compile(r'(\w+)\s*(?:\(\s*"([^"]*)"[^)]*\))?', re.MULTILINE)
+        constants = []
+        # 콤마로 분리해 각 항목 파싱 (가장 단순한 형태)
+        for part in constants_block.split(","):
+            part = part.strip().lstrip("/").lstrip("*").strip()
+            if not part:
+                continue
+            cm = const_re.match(part)
+            if not cm:
+                continue
+            cname = cm.group(1)
+            cdesc = (cm.group(2) or "").strip()
+            if cname.isupper() or (cname and cname[0].isupper()):
+                constants.append({"name": cname, "description": cdesc})
+        if constants:
+            result[name] = {"constants": constants}
+    return result
+
+
 def check_javadoc_completeness(javadoc: dict, method_params: dict) -> list:
     """Javadoc 필수 항목 누락 여부 검사. 오류 메시지 리스트 반환 (빈 리스트 = 통과)."""
     errors = []
@@ -459,9 +506,14 @@ REVIEW_CHECKLIST = """
 """
 
 
-def format_doc_hints(javadoc: dict, method_params: dict, field_docs: dict) -> str:
-    """파싱된 Javadoc 정보를 Claude 프롬프트용 구조화 텍스트로 변환."""
-    if not javadoc and not method_params and not field_docs:
+def format_doc_hints(javadoc: dict, method_params: dict, field_docs: dict,
+                     enums: dict = None) -> str:
+    """파싱된 Javadoc 정보를 Claude 프롬프트용 구조화 텍스트로 변환.
+
+    enums: {EnumName: {'constants': [{'name': str, 'description': str}, ...]}}
+    """
+    enums = enums or {}
+    if not javadoc and not method_params and not field_docs and not enums:
         return ""
 
     parts = ["## 개발자 작성 문서 힌트 (아래 내용을 문서에 반드시 반영하세요)"]
@@ -512,5 +564,19 @@ def format_doc_hints(javadoc: dict, method_params: dict, field_docs: dict) -> st
                 line += f" (예시: `{info['example']}`)"
             field_lines.append(line)
         parts.append("### DTO 필드 설명\n" + "\n".join(field_lines))
+
+    if enums:
+        enum_blocks = []
+        for ename, info in enums.items():
+            consts = info.get("constants", [])
+            if not consts:
+                continue
+            rows = [f"- `{c['name']}`" + (f" — {c['description']}" if c.get("description") else "") for c in consts]
+            enum_blocks.append(f"**{ename}**\n" + "\n".join(rows))
+        if enum_blocks:
+            parts.append(
+                "### 사용된 Enum (코드에서 자동 추출 — 가능한 모든 값입니다)\n"
+                + "\n\n".join(enum_blocks)
+            )
 
     return "\n\n".join(parts)

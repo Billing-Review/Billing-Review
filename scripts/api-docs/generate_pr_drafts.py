@@ -32,7 +32,7 @@ from lib.api_utils import (
     read_registry, write_registry, registry_path_for, registry_rel_for,
     extract_javadoc_and_params, parse_field_javadocs, format_doc_hints,
     check_javadoc_completeness, build_doc_header, REVIEW_CHECKLIST,
-    strip_pre_h2,
+    strip_pre_h2, parse_enum_constants,
 )
 from lib.dooray import create_page, delete_page, get_page, update_page
 from lib.git_utils import git_commit_and_push
@@ -341,24 +341,42 @@ def extract_method_for_api(filepath: str, http_method: str, target_path: str) ->
     return "\n".join(header_lines) + "\n\n    " + method_block.replace("\n", "\n    ") + "\n}"
 
 
-def find_related_files(controller_paths: list) -> list:
-    import_pattern = re.compile(r'import\s+([\w.]+);')
-    related, seen = [], set(controller_paths)
+MAX_RELATED_FILES = 30
+MAX_RELATED_DEPTH = 3
 
-    for ctrl_path in controller_paths:
-        full = ctrl_path if os.path.exists(ctrl_path) else f"./{ctrl_path}"
+
+def find_related_files(controller_paths: list) -> list:
+    """컨트롤러에서 시작해 import 를 따라가며 관련 .java 파일을 BFS 수집.
+
+    DTO 안의 enum / nested DTO 까지 잡기 위해 max_depth 단계까지 추적한다.
+    외부 라이브러리(spring 등) 와 self는 스킵하고, 파일 수는 cap 한다.
+    """
+    import_pattern = re.compile(r'import\s+([\w.]+);')
+    seen = set(controller_paths)
+    related = []
+    queue = [(p, 0) for p in controller_paths]
+
+    while queue and len(related) < MAX_RELATED_FILES:
+        path, depth = queue.pop(0)
+        full = path if os.path.exists(path) else f"./{path}"
         try:
             with open(full, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
         except OSError:
             continue
+        if depth >= MAX_RELATED_DEPTH:
+            continue
         for imp in import_pattern.findall(content):
             if any(imp.startswith(p) for p in EXTERNAL_IMPORT_PREFIXES):
                 continue
             file_path = "src/main/java/" + imp.replace(".", "/") + ".java"
-            if file_path not in seen and os.path.exists(file_path):
-                seen.add(file_path)
-                related.append(file_path)
+            if file_path in seen or not os.path.exists(file_path):
+                continue
+            seen.add(file_path)
+            related.append(file_path)
+            queue.append((file_path, depth + 1))
+            if len(related) >= MAX_RELATED_FILES:
+                break
     return related
 
 
@@ -410,9 +428,11 @@ def generate_doc(method: str, path: str, ctrl_file: str, full_diff: str,
         sys.exit(1)
 
     all_field_docs = {}
+    all_enums = {}
     for rp in related:
         all_field_docs.update(parse_field_javadocs(rp))
-    doc_hints = format_doc_hints(javadoc, method_params, all_field_docs)
+        all_enums.update(parse_enum_constants(rp))
+    doc_hints = format_doc_hints(javadoc, method_params, all_field_docs, all_enums)
 
     javadoc_doc_url = javadoc.get("doc_url", "")
     javadoc_title = javadoc.get("title", "")
