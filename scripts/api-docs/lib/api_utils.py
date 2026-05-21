@@ -408,14 +408,13 @@ SCOPE_LABEL = {
 
 
 def build_doc_header(method: str, path: str, javadoc_title: str, scope: str) -> str:
-    """문서 최상단 헤더 생성.
+    """문서 최상단 헤더 생성. H1 뒤 곧바로 본문(## Description)으로 이어진다.
 
     예시:
         # [사외] 결제 처리
 
-        `POST` `/api/payments`
-
-    scope가 비어있거나 알 수 없는 값이면 라벨을 생략하고 제목만 사용.
+    Method/URL 은 본문의 `## API Info` 표에서 다루므로 부제는 출력하지 않는다.
+    scope 가 비어있거나 알 수 없는 값이면 라벨을 생략하고 제목만 사용.
     """
     label = SCOPE_LABEL.get((scope or "").lower())
     title = (javadoc_title or "").strip()
@@ -427,8 +426,7 @@ def build_doc_header(method: str, path: str, javadoc_title: str, scope: str) -> 
         h1 = f"# [{label}] {method} {path}"
     else:
         h1 = f"# [{method}] {path}"
-    subtitle = f"`{method}` `{path}`"
-    return f"{h1}\n\n{subtitle}\n\n"
+    return f"{h1}\n\n"
 
 
 def strip_pre_h2(text: str) -> str:
