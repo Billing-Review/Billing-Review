@@ -481,6 +481,13 @@ def check_javadoc_completeness(javadoc: dict, method_params: dict) -> list:
                     f"@header {name} 설명이 없습니다 (@RequestHeader)\n"
                     f"  예) @header {name} 이 header 에 대한 설명"
                 )
+        elif kind == "body":
+            body_descs = javadoc.get("body_params", {})
+            if not (body_descs.get(name) or query_descs.get(name)):
+                errors.append(
+                    f"@body {name} 설명이 없습니다 (@RequestBody / @ModelAttribute)\n"
+                    f"  예) @body {name} 이 인자가 받는 데이터의 역할/용도"
+                )
 
     return errors
 
@@ -588,26 +595,27 @@ def format_doc_hints(javadoc: dict, method_params: dict, field_docs: dict,
             desc = body_descs.get(name) or query_descs.get(name, "")
             body_rows.append(f"- {name} ({info['type']}): {desc}")
 
+    # 템플릿의 Request 섹션 이름과 일치시킨다 (Header / PathVariable / Parameters / Body)
     if header_rows:
         parts.append(
-            "### Request Headers\n"
+            "### Header (Request)\n"
             "| 항목명 | 필수여부 | 타입 | 의미 |\n|--------|--------|------|------|\n"
             + "\n".join(header_rows)
         )
     if path_rows:
         parts.append(
-            "### Path Variables\n"
+            "### PathVariable\n"
             "| 변수명 | 타입 | 설명 |\n|--------|------|------|\n"
             + "\n".join(path_rows)
         )
     if query_rows:
         parts.append(
-            "### Query Parameters\n"
+            "### Parameters (Query)\n"
             "| 파라미터 | 타입 | 필수 | 기본값 | 설명 |\n|----------|------|------|--------|------|\n"
             + "\n".join(query_rows)
         )
     if body_rows:
-        parts.append("### Request Body\n" + "\n".join(body_rows))
+        parts.append("### Body (인자 역할)\n" + "\n".join(body_rows))
 
     if javadoc.get("returns"):
         parts.append(f"### 응답 설명\n{javadoc['returns']}")
@@ -621,17 +629,38 @@ def format_doc_hints(javadoc: dict, method_params: dict, field_docs: dict,
             field_lines.append(line)
         parts.append("### DTO 필드 설명\n" + "\n".join(field_lines))
 
+    # ── Enum 힌트 ──
+    # 어떤 DTO 필드의 @ex 값이 enum 상수 이름과 매칭되면 사용자가 이미 충분한
+    # 예시를 줬다고 보고 해당 enum 의 전체 상수 dump 는 생략한다.
+    # 매칭되는 @ex 가 없으면 최대 5개 상수만 노출(나머지는 +N 표시).
     if enums:
+        example_tokens = set()
+        for info in field_docs.values():
+            ex = info.get("example", "")
+            if ex:
+                example_tokens.add(ex.strip().strip('"').strip("'"))
+
+        ENUM_CAP = 5
         enum_blocks = []
         for ename, info in enums.items():
             consts = info.get("constants", [])
             if not consts:
                 continue
-            rows = [f"- `{c['name']}`" + (f" — {c['description']}" if c.get("description") else "") for c in consts]
+            const_names = {c["name"] for c in consts}
+            # @ex 값에 이 enum 의 상수가 들어있으면 dump 생략
+            if example_tokens & const_names:
+                continue
+            shown = consts[:ENUM_CAP]
+            rows = [
+                f"- `{c['name']}`" + (f" — {c['description']}" if c.get("description") else "")
+                for c in shown
+            ]
+            if len(consts) > ENUM_CAP:
+                rows.append(f"- _… 외 {len(consts) - ENUM_CAP}개_")
             enum_blocks.append(f"**{ename}**\n" + "\n".join(rows))
         if enum_blocks:
             parts.append(
-                "### 사용된 Enum (코드에서 자동 추출 — 가능한 모든 값입니다)\n"
+                "### 사용된 Enum (코드에서 자동 추출 — 대표값만 노출)\n"
                 + "\n\n".join(enum_blocks)
             )
 

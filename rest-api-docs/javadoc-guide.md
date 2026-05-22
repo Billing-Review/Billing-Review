@@ -17,7 +17,7 @@
  * @path   [4] PathVariable명  설명  (@PathVariable, 필수)
  * @header [5] 헤더명          설명  (@RequestHeader, 필수)
  * @param  [6] QueryParam명    설명  (@RequestParam, 필수)
- * @body   [7] 필드명          설명  (@RequestBody / @ModelAttribute, 생략 가능)
+ * @body   [7] 변수명          설명  (@RequestBody / @ModelAttribute, 필수)
  * @return [8] 응답 설명 (선택)
  */
 ```
@@ -30,7 +30,7 @@
 | 4 | `@path` | `@PathVariable` | ✅ | Request > URL (Path Variable 비고) |
 | 5 | `@header` | `@RequestHeader` | ✅ | Request > Header |
 | 6 | `@param` | `@RequestParam` | ✅ | Request > Parameters (Query 비고) |
-| 7 | `@body` | `@RequestBody` / `@ModelAttribute` | - | Request > Parameters (Body 비고) — DTO 필드 주석이 있으면 생략 가능 |
+| 7 | `@body` | `@RequestBody` / `@ModelAttribute` | ✅ | Request > Body. **인자 변수의 역할/용도를 간단히 설명** (DTO 필드의 상세 스펙은 DTO Javadoc 에서 자동 추출되지만, 변수가 무엇을 받는지는 메서드 시점에 명시) |
 | 8 | `@return` | — | - | Response 설명 |
 
 ---
@@ -83,22 +83,24 @@ public TodoResponse getById(
         @RequestHeader("X-System-Id") String systemId) { ... }
 
 
-// @RequestBody → DTO 필드 주석으로 대체, @body 생략
+// @RequestBody → @body 로 변수의 역할 명시 (필드 스펙은 DTO Javadoc 에서 자동 추출)
 /**
  * Todo 생성
  * @apiScope external
  *
+ * @body request 생성할 Todo 정보 (title/content/dueDate/priority)
  * @return 생성된 Todo 정보
  */
 @PostMapping
 public TodoResponse create(@RequestBody TodoCreateRequest request) { ... }
 
 
-// @ModelAttribute → DTO 필드 주석으로 대체, @body 생략
+// @ModelAttribute → 동일하게 @body 작성
 /**
  * Todo 검색
  * @apiScope internal
  *
+ * @body request 검색 조건 (keyword/status/page/size)
  * @return 검색된 Todo 목록
  */
 @GetMapping("/search")
@@ -167,6 +169,7 @@ public class TodoResponse {
 | `@path` | `@PathVariable` 파라미터 각각 필요 |
 | `@param` | `@RequestParam` 파라미터 각각 필요 |
 | `@header` | `@RequestHeader` 파라미터 각각 필요 |
+| `@body` | `@RequestBody` / `@ModelAttribute` 파라미터 각각 필요 |
 
 실패 시 Actions 로그에 누락 항목이 명시됩니다.
 

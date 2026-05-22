@@ -39,24 +39,41 @@
 
 ## Request
 
+> 어노테이션별로 표를 분리한다. 사용하지 않는 섹션은 `(없음)` 으로 표시한다.
+
 ### Header
+
+(`@RequestHeader` — 항상 공통 헤더 2 개를 포함하고, 추가 인증 헤더가 있으면 행을 더한다)
 
 | 항목명 | 필수여부 | 타입 | 의미 |
 | --- | ---- | --- | --- |
 | clientOrigin | Y | String | 호출처(빌링개발팀에 문의) [https://nhnent.dooray.com/share/pages/WIcRkRY9RdSwwP9_l5OskA/3657213289294964605](https://nhnent.dooray.com/share/pages/WIcRkRY9RdSwwP9_l5OskA/3657213289294964605) |
 | requestId | N | String | 요청 uuid (로그 추적이나 확인 요청 시 사용됨) |
 
-(추가 인증 헤더가 필요한 경우 행 추가 — 예: `Authorization`)
+### PathVariable
+
+(`@PathVariable`)
+
+| 변수명 | 타입 | 설명 |
+| --- | --- | --- |
+| id | Long | 리소스 식별자 |
 
 ### Parameters
 
-(Path/Query/Body 파라미터를 모두 한 표에 정리한다. 없으면 `해당 없음`)
+(`@RequestParam` — 쿼리스트링)
 
-| 필드명 | 필수여부 | 타입 | 설명 | 비고 |
+| 파라미터 | 필수여부 | 타입 | 기본값 | 설명 |
 | --- | ---- | --- | --- | --- |
-| id | Y | Long | 리소스 식별자 | Path Variable |
-| page | N | Integer | 페이지 번호 (0-based) | Query, default `0` |
-| title | Y | String | Todo 제목 | Body, 최대 100자 |
+| page | N | Integer | `0` | 페이지 번호 (0-based) |
+
+### Body
+
+(`@RequestBody` / `@ModelAttribute` — DTO/Map 의 필드 또는 인자 자체 설명. 필드는 DTO 클래스의 Javadoc 에서 추출됨)
+
+| 필드명 | 필수여부 | 타입 | 설명 |
+| --- | ---- | --- | --- |
+| title | Y | String | Todo 제목 (최대 100자) |
+| dueDate | N | LocalDate | 마감일 (yyyy-MM-dd) |
 
 ### Example
 
@@ -67,7 +84,7 @@
 }
 ```
 
-(GET·DELETE 등 body 가 없는 경우 `(없음)` 으로 표시)
+(GET·DELETE 등 body 가 없는 경우 Body / Example 모두 `(없음)` 으로 표시)
 
 ## Response
 
