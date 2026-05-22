@@ -42,8 +42,9 @@ CTRL_PATTERN = re.compile(r"(Controller|Handler|Router)\.(java|kt|go|py|ts|js)$"
 CLASS_MAPPING_RE = re.compile(
     r'@RequestMapping\s*\(\s*(?:value\s*=\s*|path\s*=\s*)?["\']([^"\']+)["\']'
 )
+# 메서드 레벨 매핑만 — @RequestMapping 은 클래스 레벨 전용으로 가정 (Spring 컨벤션)
 METHOD_MAPPING_RE = re.compile(
-    r'@(Get|Post|Put|Delete|Patch|Request)Mapping'
+    r'@(Get|Post|Put|Delete|Patch)Mapping'
     r'(?:'
     r'\s*\(\s*(?:value\s*=\s*|path\s*=\s*)?["\']([^"\']*)["\']'
     r'|\s*\(\s*\)'
@@ -83,8 +84,6 @@ def find_controller_file(http_method: str, path: str) -> str:
         class_prefix = cm.group(1).rstrip("/") if cm else ""
         for m in METHOD_MAPPING_RE.finditer(content):
             verb = m.group(1).upper()
-            if verb == "REQUEST":
-                verb = "GET"
             if http_method.upper() != verb:
                 continue
             mp = m.group(2) or ""
@@ -110,8 +109,6 @@ def extract_method_block(filepath: str, http_method: str, path: str) -> str:
     for i, line in enumerate(lines):
         for m in METHOD_MAPPING_RE.finditer(line.strip()):
             verb = m.group(1).upper()
-            if verb == "REQUEST":
-                verb = "GET"
             mp = m.group(2) or ""
             sep = "/" if mp and not mp.startswith("/") else ""
             if verb == http_method.upper() and _normalize_path(class_prefix + sep + mp) == norm:
