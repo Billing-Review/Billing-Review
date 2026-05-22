@@ -39,7 +39,7 @@
 
 ## Request
 
-> 어노테이션별로 표를 분리한다. 사용하지 않는 섹션은 `(없음)` 으로 표시한다.
+> 어노테이션별로 표를 분리한다. **사용하지 않는 섹션은 헤딩까지 통째로 출력하지 않는다** (예: PathVariable 이 없으면 `### PathVariable` 자체를 작성하지 않음). Header 는 공통 헤더가 항상 있으므로 항상 출력한다.
 
 ### Header
 
@@ -84,7 +84,7 @@
 }
 ```
 
-(GET·DELETE 등 body 가 없는 경우 Body / Example 모두 `(없음)` 으로 표시)
+(GET·DELETE 등 body 가 없으면 `### Body` 와 `### Example` 섹션 자체를 출력하지 않는다)
 
 ## Response
 
