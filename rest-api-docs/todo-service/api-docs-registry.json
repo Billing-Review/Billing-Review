@@ -1,11 +1,11 @@
 {
   "POST /external/api/todo-list/create": {
-    "status": "draft",
-    "draft_page_id": "4337988562309054652",
+    "status": "published",
+    "draft_page_id": null,
     "title": "Todo 생성",
     "url_hint": "external",
     "created_at": "2026-05-19T09:47:51+09:00",
-    "updated_at": "2026-05-22T15:48:54+09:00",
+    "updated_at": "2026-05-22T16:23:03+09:00",
     "deprecated_at": null,
     "page_id": "4336507514710895230"
   },
