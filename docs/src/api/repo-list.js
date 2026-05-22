@@ -1,32 +1,22 @@
 import { getFileContent, putFile } from "./repos.js";
 import { ORG, SHARED_WORKFLOWS_REPO, REPO_LIST_PATH } from "../config.js";
-import { encodeB64 } from "../utils/b64.js";
+import { encodeB64, decodeB64 } from "../utils/b64.js";
 
-// 세션 내 메모리 캐시. write 직후 fetch 가 stale 상태이므로 (Pages 빌드/로컬
-// 정적 파일 모두 즉시 반영되지 않음) 메모리에 들고있다 우선 사용한다.
-let _memList = undefined; // undefined = 미설정, null = 비어있음, array = 값
-
-// 로컬 파일 / 메모리 캐시 우선
+// GitHub Contents API 로 직접 읽음. Pages 빌드 지연·정적 파일 캐시와 무관하게
+// 커밋 직후 즉시 최신 값을 반환한다.
 export async function readRepoList() {
-  if (_memList !== undefined) {
-    return { list: _memList && _memList.length > 0 ? _memList : null };
-  }
+  const data = await getFileContent(ORG, SHARED_WORKFLOWS_REPO, REPO_LIST_PATH);
+  if (!data || !data.content) return { list: null };
   try {
-    const res = await fetch("./repo-list.json?ts=" + Date.now());
-    if (!res.ok) {
-      _memList = null;
-      return { list: null };
-    }
-    const parsed = await res.json();
-    _memList = Array.isArray(parsed) ? parsed : null;
-    return { list: _memList && _memList.length > 0 ? _memList : null };
+    const parsed = JSON.parse(decodeB64(data.content));
+    const list = Array.isArray(parsed) && parsed.length > 0 ? parsed : null;
+    return { list };
   } catch {
-    _memList = null;
     return { list: null };
   }
 }
 
-// 쓰기는 GitHub API로 커밋. 성공 시 메모리 캐시도 갱신해 즉시 반영.
+// GitHub Contents API 로 커밋. 직전 sha 를 조회해 race condition 방지.
 export async function writeRepoList(list) {
   const current = await getFileContent(ORG, SHARED_WORKFLOWS_REPO, REPO_LIST_PATH);
   const content = JSON.stringify(list ?? [], null, 2) + "\n";
@@ -35,5 +25,4 @@ export async function writeRepoList(list) {
     message: `chore: update repo list`,
     sha: current?.sha || undefined,
   });
-  _memList = list ?? [];
 }
