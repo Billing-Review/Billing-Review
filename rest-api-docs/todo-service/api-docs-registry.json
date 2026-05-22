@@ -44,11 +44,11 @@
   },
   "POST /external/api/todo-list/categorized": {
     "status": "draft",
-    "draft_page_id": "4338013902933680279",
+    "draft_page_id": "4338020293957291176",
     "title": "카테고리 지정 Todo 생성",
     "url_hint": "external",
     "created_at": "2026-05-22T09:59:47+09:00",
-    "updated_at": "2026-05-22T16:39:15+09:00",
+    "updated_at": "2026-05-22T16:51:57+09:00",
     "deprecated_at": null,
     "page_id": "4338002818240677882"
   }
