@@ -95,17 +95,114 @@ def set_repo_page_id(registry: dict, url_hint: str, page_id: str):
     registry[_REPO_PAGE_KEY][url_hint or "default"] = page_id
 
 
-def read_service_config(repo_short_name: str) -> dict:
-    # 통합 service-config.json 우선 사용 (rest-api-docs/service-config.json)
-    consolidated = os.path.join("shared-config", "rest-api-docs", "service-config.json")
-    if os.path.exists(consolidated):
-        with open(consolidated, "r", encoding="utf-8") as f:
-            return json.load(f).get(repo_short_name, {})
+_SERVICE_CONFIG_PATH = os.path.join("shared-config", "rest-api-docs", "service-config.json")
+_GATEWAY_POOL_KEY = "_gateways"
+
+
+def read_full_service_config() -> dict:
+    """service-config.json 전체 반환 (게이트웨이 풀 + 서비스 설정 모두)."""
+    if os.path.exists(_SERVICE_CONFIG_PATH):
+        with open(_SERVICE_CONFIG_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
     return {}
 
 
-def build_env_url_section(service_config: dict) -> str:
-    envs = service_config.get("environments", {})
+def read_service_config(repo_short_name: str) -> dict:
+    """단일 서비스의 설정만 반환 (하위호환)."""
+    return read_full_service_config().get(repo_short_name, {})
+
+
+def get_package(filepath: str) -> str:
+    """Java 파일 상단의 'package com.x.y;' 선언에서 패키지 경로 추출."""
+    try:
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            for _ in range(30):  # 상단 30줄 안에 반드시 존재
+                line = f.readline()
+                if not line:
+                    break
+                m = re.match(r"\s*package\s+([\w.]+)\s*;", line)
+                if m:
+                    return m.group(1)
+    except OSError:
+        pass
+    return ""
+
+
+def find_group_for_controller(filepath: str, repo_config: dict) -> dict:
+    """컨트롤러의 패키지를 보고 매칭되는 group dict 를 반환.
+
+    - useGateway=true 인 서비스만 group 매칭 시도
+    - 매칭 후보가 여럿이면 packagePrefix 가 가장 긴 것을 선택
+    - 매칭 실패 시 None
+    """
+    if not repo_config.get("useGateway"):
+        return None
+    groups = repo_config.get("groups") or []
+    if not groups:
+        return None
+    pkg = get_package(filepath)
+    if not pkg:
+        return None
+    matches = [g for g in groups if g.get("packagePrefix") and pkg.startswith(g["packagePrefix"])]
+    if not matches:
+        return None
+    matches.sort(key=lambda g: len(g.get("packagePrefix") or ""), reverse=True)
+    return matches[0]
+
+
+def apply_gateway_transform(path: str, group: dict) -> str:
+    """컨트롤러 내부 path 를 게이트웨이 외부 path 로 변환.
+
+    예시:
+        path             = /external/api/todo-list/{id}
+        internalUrlPrefix= /external
+        externalUrlPrefix= /pay
+        결과            = /pay/api/todo-list/{id}
+
+    group 이 None 이거나 internal prefix 가 path 와 매칭 안 되면 path 그대로 반환.
+    """
+    if not group:
+        return path
+    internal = (group.get("internalUrlPrefix") or "").rstrip("/")
+    external = (group.get("externalUrlPrefix") or "").rstrip("/")
+    if internal and path.startswith(internal):
+        remainder = path[len(internal):]
+        if not remainder.startswith("/"):
+            remainder = "/" + remainder
+        return (external + remainder) if external else remainder
+    return path
+
+
+def resolve_environments(repo_config: dict, full_config: dict, group: dict = None) -> dict:
+    """우선순위에 따라 해당 컨트롤러용 환경별 Base URL dict 반환.
+
+    1. useGateway + group 매칭 → _gateways[gatewayId] 의 환경 URL
+    2. repo_config.environments
+    3. 빈 dict (호출부에서 registry fallback 등 후속 처리)
+    """
+    if group and repo_config.get("useGateway"):
+        gateway_id = repo_config.get("gatewayId") or ""
+        gateways = (full_config.get(_GATEWAY_POOL_KEY) or {})
+        envs = gateways.get(gateway_id) or {}
+        if envs:
+            return envs
+    return repo_config.get("environments") or {}
+
+
+def list_services(full_config: dict) -> list:
+    """서비스 키 목록만 (`_` 로 시작하는 메타 키 제외)."""
+    return [k for k in full_config.keys() if not k.startswith("_")]
+
+
+def build_env_url_section(envs: dict) -> str:
+    """{환경:URL} dict 을 Claude 프롬프트용 '서버 URL' 표로 변환.
+
+    이전 시그니처(service_config dict 통째로 받음) 와 하위호환을 위해
+    'environments' 키가 있으면 안쪽 dict 을 사용한다.
+    """
+    if isinstance(envs, dict) and "environments" in envs and "Alpha" not in envs:
+        envs = envs.get("environments") or {}
+    envs = envs or {}
     if not envs:
         return ""
     rows = "\n".join(f"| {env} | {url} |" for env, url in envs.items())
