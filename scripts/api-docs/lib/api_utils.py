@@ -534,6 +534,46 @@ def strip_pre_h2(text: str) -> str:
     return text[m.start():] if m else text
 
 
+import difflib
+
+DIFF_SECTION_TITLE = "이전 버전과의 변경사항"
+
+
+def build_diff_block(prev_content: str, new_content: str,
+                     max_lines: int = 200) -> str:
+    """수정 Draft 용 unified diff 섹션 생성.
+
+    변경 사항이 없으면 빈 문자열 반환. 너무 길면 max_lines 까지만 노출하고
+    잘렸음을 알리는 주석을 덧붙인다. publish 시 strip 으로 제거된다.
+    """
+    if not prev_content or not new_content:
+        return ""
+    prev_lines = prev_content.splitlines(keepends=True)
+    new_lines = new_content.splitlines(keepends=True)
+    diff_lines = list(difflib.unified_diff(
+        prev_lines, new_lines,
+        fromfile="이전 published 버전",
+        tofile="새 Draft",
+        n=2,
+    ))
+    if not diff_lines:
+        return ""
+    truncated = False
+    if len(diff_lines) > max_lines:
+        diff_lines = diff_lines[:max_lines]
+        truncated = True
+    body = "".join(diff_lines)
+    # diff 블록 내에 ``` 가 들어가지 않도록 보호 (마크다운 코드블록 깨짐 방지)
+    body = body.replace("```", "``​`")
+    note = "\n\n_diff 가 너무 길어 일부만 표시되었습니다._" if truncated else ""
+    return (
+        f"\n\n---\n\n"
+        f"### 📝 {DIFF_SECTION_TITLE}\n\n"
+        f"> publish 시 자동으로 제거됩니다. 검토 후 변경 의도가 맞는지 확인해주세요.\n\n"
+        f"```diff\n{body}```{note}\n"
+    )
+
+
 REVIEW_CHECKLIST = """
 
 ---

@@ -39,18 +39,21 @@ _DRAFT_META_RE = re.compile(
     re.MULTILINE,
 )
 
-# 문서 하단의 검토자용 '### 확인사항' 섹션 (구분선 포함) 을 제거.
-# 형식은 lib/api_utils.py 의 REVIEW_CHECKLIST 와 동일해야 한다.
-_REVIEW_CHECKLIST_RE = re.compile(
-    r'\n+---\n+###\s*확인사항\b.*\Z',
-    re.DOTALL,
-)
+# 문서 하단의 검토자용 footer 섹션 (구분선 포함) 을 제거.
+# - 신규 Draft: '### 확인사항' 체크리스트
+# - 수정 Draft: '### 📝 이전 버전과의 변경사항' diff 섹션
+# 형식은 lib/api_utils.py 의 REVIEW_CHECKLIST / build_diff_block 과 일치해야 한다.
+_DRAFT_FOOTER_RES = [
+    re.compile(r'\n+---\n+###\s*확인사항\b.*\Z', re.DOTALL),
+    re.compile(r'\n+---\n+###\s*📝?\s*이전 버전과의 변경사항\b.*\Z', re.DOTALL),
+]
 
 
 def strip_draft_meta(content: str) -> str:
     content = content.replace('\r\n', '\n')
     content = _DRAFT_META_RE.sub("", content)
-    content = _REVIEW_CHECKLIST_RE.sub("", content)
+    for pattern in _DRAFT_FOOTER_RES:
+        content = pattern.sub("", content)
     return content.rstrip() + "\n"
 
 

@@ -25,9 +25,9 @@ from lib.api_utils import (
     read_service_config, build_env_url_section,
     extract_javadoc_and_params, parse_field_javadocs, format_doc_hints,
     check_javadoc_completeness, build_doc_header, REVIEW_CHECKLIST,
-    strip_pre_h2, parse_enum_constants,
+    strip_pre_h2, parse_enum_constants, build_diff_block,
 )
-from lib.dooray import create_page, delete_page
+from lib.dooray import create_page, delete_page, get_page
 from lib.git_utils import git_commit_and_push
 from lib.config import DOORAY_WIKI_ID, DOORAY_PROJECT_ID, DOORAY_DRAFT_PARENT_PAGE_ID
 
@@ -334,10 +334,22 @@ def main():
     # 첫 H2(`## `) 이전의 모든 텍스트(서두/H1/부제/Claude 멘트 등) 제거.
     body = strip_pre_h2(raw_content)
     header = build_doc_header(http_method, path, javadoc_title, javadoc_doc_url)
-    doc_content = f"{header}{body}{REVIEW_CHECKLIST}"
+    doc_content = f"{header}{body}"
 
-    # Draft 생성
+    # 신규 / 수정 분기 — 수정은 이전 버전 fetch 해서 diff 섹션 추가
     is_update = isinstance(existing, dict) and existing.get("status") in ("published", "deprecated")
+    if is_update and existing.get("page_id"):
+        try:
+            _, existing_doc = get_page(
+                dooray_api_key, DOORAY_WIKI_ID, existing["page_id"], base_url
+            )
+        except Exception:
+            existing_doc = ""
+        diff_block = build_diff_block(existing_doc, doc_content) if existing_doc else ""
+        doc_content += (diff_block or REVIEW_CHECKLIST)
+    else:
+        doc_content += REVIEW_CHECKLIST
+
     prefix = "[API Draft][수정]" if is_update else "[API Draft][신규]"
     draft_title = f"{prefix} {javadoc_title}" if javadoc_title else f"{prefix} {http_method} {path}"
     full_content = (

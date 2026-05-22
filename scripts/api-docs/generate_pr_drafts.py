@@ -32,7 +32,7 @@ from lib.api_utils import (
     read_registry, write_registry, registry_path_for, registry_rel_for,
     extract_javadoc_and_params, parse_field_javadocs, format_doc_hints,
     check_javadoc_completeness, build_doc_header, REVIEW_CHECKLIST,
-    strip_pre_h2, parse_enum_constants,
+    strip_pre_h2, parse_enum_constants, build_diff_block,
 )
 from lib.dooray import create_page, delete_page, get_page, update_page
 from lib.git_utils import git_commit_and_push
@@ -483,10 +483,10 @@ PR 설명: {pr_body[:1000] if pr_body else "(없음)"}
     raw_content = call_claude(prompt)
 
     # 첫 H2(`## `) 이전의 모든 텍스트(서두/H1/부제/Claude 멘트 등) 제거.
-    # 시스템이 헤더(H1 + 부제)와 푸터(확인사항)를 항상 주입한다.
+    # 시스템이 헤더(H1)를 주입한다. footer 는 호출부에서 신규/수정에 따라 분기.
     body = strip_pre_h2(raw_content)
     header = build_doc_header(method, path, javadoc_title, javadoc_doc_url)
-    doc_content = f"{header}{body}{REVIEW_CHECKLIST}"
+    doc_content = f"{header}{body}"
 
     return doc_content, javadoc_doc_url, javadoc_title
 
@@ -684,6 +684,13 @@ def main():
         prefix = "[API Draft][수정]" if is_update else "[API Draft][신규]"
         # draft 페이지 제목: Javadoc 제목 우선, 없으면 method + path
         draft_title = f"{prefix} {javadoc_title}" if javadoc_title else f"{prefix} {method} {path}"
+
+        # 신규: 확인사항 / 수정: 이전 버전과의 diff (둘 중 하나만)
+        if is_update and existing_doc:
+            diff_block = build_diff_block(existing_doc, doc_content)
+            doc_content = doc_content + (diff_block or REVIEW_CHECKLIST)
+        else:
+            doc_content = doc_content + REVIEW_CHECKLIST
 
         draft_page_id, draft_page_url = create_draft(
             dooray_api_key, wiki_id, draft_parent_id, base_url, web_url, project_id,
