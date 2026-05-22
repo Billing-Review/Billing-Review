@@ -141,9 +141,12 @@ def get_class_prefix(filepath: str) -> str:
 def extract_mappings_from_text(text: str, class_prefix: str) -> list:
     results = []
     for mm in _METHOD_MAPPING_RE.finditer(text):
-        verb = mm.group(1).upper()
-        if verb == "REQUEST":
-            verb = "GET"
+        raw_verb = mm.group(1).upper()
+        # 클래스 레벨 @RequestMapping 과 메서드 레벨 @RequestMapping 구분.
+        # 클래스 헤더는 path 가 class_prefix 와 동일하므로 스킵 (이중 concat 방지).
+        if raw_verb == "REQUEST" and (mm.group(2) or "").rstrip("/") == class_prefix:
+            continue
+        verb = "GET" if raw_verb == "REQUEST" else raw_verb
         path = mm.group(2) or ""
         sep = "/" if path and not path.startswith("/") else ""
         full_path = class_prefix + sep + path
