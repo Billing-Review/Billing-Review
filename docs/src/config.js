@@ -13,6 +13,9 @@ export const ORG = "dev-billing";
 // shared-workflows 레포 (템플릿 파일 + registry 위치)
 export const SHARED_WORKFLOWS_REPO = "shared-workflows";
 
+// 관리 페이지에서 표시할 레포 목록 파일 (shared-workflows 레포 내 경로)
+export const REPO_LIST_PATH = "docs/repo-list.json";
+
 // =============================================================
 // Feature 정의
 //   - id: 내부 식별자
@@ -67,13 +70,6 @@ export const SERVICE_CONFIG_ENVIRONMENTS = [
   { key: "Beta",  required: false, placeholder: "https://beta-{service}.example.com" },
   { key: "Real",  required: true,  placeholder: "https://{service}.example.com" },
 ];
-
-// =============================================================
-// 매트릭스에 표시할 레포 필터.
-//   null  → org의 모든 레포
-//   배열  → 화이트리스트
-// =============================================================
-export const REPO_WHITELIST = null;
 
 // 레포 목록 정렬 기준: "updated" | "name" | "created"
 export const REPO_SORT = "updated";

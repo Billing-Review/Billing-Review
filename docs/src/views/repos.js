@@ -3,6 +3,8 @@ import { loadMatrix, appliedCount } from "../api/applied.js";
 import { FEATURES } from "../config.js";
 import { toast } from "../utils/toast.js";
 import { openApplyModal } from "./apply-modal.js";
+import { readRepoList, writeRepoList } from "../api/repo-list.js";
+import { setRuntimeWhitelist, listAllOrgRepos } from "../api/repos.js";
 
 const STORAGE_KEY_FILTER = "ui.repos.filter";
 
@@ -22,6 +24,105 @@ export async function renderRepos(root, repoName /* optional */) {
     },
     "↻"
   );
+
+  // ── 레포 추가 UI ──
+  let repoListState = { list: null }; // loadAll 시 갱신
+
+  async function openAddRepoModal() {
+    const backdrop = h("div", { class: "modal-backdrop" });
+    const listEl = h("div", { class: "repo-suggest-list" });
+    const searchEl = h("input", { type: "text", placeholder: "레포 이름 검색..." });
+    const confirmBtn = h("button", { class: "btn", disabled: true }, "확인");
+    const cancelBtn = h("button", { class: "btn btn--ghost", style: { color: "#1f2328", border: "1px solid #d0d7de" } }, "취소");
+
+    let allRepos = [];
+    let selected = null;
+
+    function renderList() {
+      clear(listEl);
+      const q = searchEl.value.trim().toLowerCase();
+      const currentSet = new Set(repoListState.list || []);
+      const filtered = allRepos
+        .filter((r) => !currentSet.has(r.name))
+        .filter((r) => !q || r.name.toLowerCase().includes(q));
+
+      if (!filtered.length) {
+        listEl.appendChild(h("div", { class: "repo-suggest-empty" }, q ? "결과 없음" : "추가 가능한 레포 없음"));
+        return;
+      }
+      for (const repo of filtered) {
+        const isSelected = selected?.name === repo.name;
+        listEl.appendChild(
+          h("div", {
+            class: "repo-suggest-item" + (isSelected ? " is-selected" : ""),
+            onclick: () => {
+              selected = isSelected ? null : repo;
+              confirmBtn.disabled = !selected;
+              renderList();
+            },
+          },
+          h("div", null,
+            h("div", { class: "repo-suggest-item__name" }, repo.name),
+            repo.description
+              ? h("div", { class: "repo-suggest-item__desc" }, repo.description)
+              : null
+          ),
+          h("span", { class: "repo-suggest-item__check" }, "✓")
+          )
+        );
+      }
+    }
+
+    listEl.appendChild(h("div", { class: "repo-suggest-empty" }, h("span", { class: "spinner" }), " 로딩 중..."));
+
+    searchEl.addEventListener("input", renderList);
+
+    confirmBtn.addEventListener("click", async () => {
+      if (!selected) return;
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = "추가 중...";
+      try {
+        const next = [...(repoListState.list || []), selected.name];
+        await writeRepoList(next);
+        backdrop.remove();
+        await loadAll(true);
+      } catch (err) {
+        toast(`추가 실패: ${err.message}`, "error", 4000);
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = "확인";
+      }
+    });
+
+    cancelBtn.addEventListener("click", () => backdrop.remove());
+    backdrop.addEventListener("click", (e) => { if (e.target === backdrop) backdrop.remove(); });
+
+    mount(backdrop,
+      h("div", { class: "modal", onclick: (e) => e.stopPropagation() },
+        h("div", { class: "modal__header" },
+          h("h3", { class: "modal__title" }, "레포 추가"),
+          h("div", { class: "modal__search" },
+            h("span", { class: "modal__search-icon" }, "🔍"),
+            searchEl
+          ),
+        ),
+        listEl,
+        h("div", { class: "modal__actions" }, cancelBtn, confirmBtn)
+      )
+    );
+    document.body.appendChild(backdrop);
+    searchEl.focus();
+
+    // 레포 목록 비동기 로드
+    try {
+      allRepos = await listAllOrgRepos();
+      renderList();
+    } catch (err) {
+      clear(listEl);
+      listEl.appendChild(h("div", { class: "repo-suggest-empty" }, `조회 실패: ${err.message}`));
+    }
+  }
+
+  const addToggleBtn = h("button", { class: "btn btn--small", title: "레포 추가", onclick: openAddRepoModal }, "+");
 
   // 필터 복원
   try {
@@ -65,6 +166,12 @@ export async function renderRepos(root, repoName /* optional */) {
   function renderSidebar() {
     saveFilters();
     clear(sidebarList);
+    if (!repoListState.list) {
+      sidebarList.appendChild(
+        h("div", { class: "empty" }, "+ 버튼으로 레포를 추가하세요")
+      );
+      return;
+    }
     const rows = filteredRows();
     if (!rows.length) {
       sidebarList.appendChild(h("div", { class: "empty" }, "결과 없음"));
@@ -74,6 +181,23 @@ export async function renderRepos(root, repoName /* optional */) {
       const { applied, total } = appliedCount(row);
       const cls =
         applied === total ? "full" : applied === 0 ? "empty" : "partial";
+      const removeBtn = repoListState.list
+        ? h("button", {
+            class: "btn--remove",
+            title: "목록에서 제거",
+            onclick: async (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              try {
+                const next = repoListState.list.filter((r) => r !== row.repo.name);
+                await writeRepoList(next);
+                await loadAll(true);
+              } catch (err) {
+                toast(`제거 실패: ${err.message}`, "error", 4000);
+              }
+            },
+          }, "×")
+        : null;
       const item = h(
         "a",
         {
@@ -83,7 +207,8 @@ export async function renderRepos(root, repoName /* optional */) {
           href: `#/repos/${row.repo.name}`,
         },
         h("span", { class: "name" }, row.repo.name),
-        h("span", { class: `badge ${cls}` }, `${applied}/${total}`)
+        h("span", { class: `badge ${cls}` }, `${applied}/${total}`),
+        removeBtn
       );
       sidebarList.appendChild(item);
     }
@@ -250,6 +375,16 @@ export async function renderRepos(root, repoName /* optional */) {
       )
     );
     try {
+      repoListState = await readRepoList();
+      setRuntimeWhitelist(repoListState.list);
+
+      if (!repoListState.list) {
+        allRows = [];
+        renderSidebar();
+        renderDetail();
+        return;
+      }
+
       allRows = await loadMatrix(force);
       renderSidebar();
       renderDetail();
@@ -281,7 +416,8 @@ export async function renderRepos(root, repoName /* optional */) {
             "div",
             { style: { display: "flex", gap: "6px" } },
             searchInput,
-            refreshBtn
+            refreshBtn,
+            addToggleBtn
           )
         ),
         h(

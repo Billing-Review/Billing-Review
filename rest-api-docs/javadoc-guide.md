@@ -14,24 +14,31 @@
  *
  * [3] API 상세 설명 (선택) — 동작 방식, 예외 케이스 등
  *
- * @param [4] 파라미터명  파라미터 설명 (Path/Query 파라미터는 필수)
- * @return [5] 응답 설명 (선택)
+ * @path   [4] PathVariable명  설명  (@PathVariable, 필수)
+ * @header [5] 헤더명          설명  (@RequestHeader, 필수)
+ * @param  [6] QueryParam명    설명  (@RequestParam, 필수)
+ * @body   [7] 필드명          설명  (@RequestBody / @ModelAttribute, 생략 가능)
+ * @return [8] 응답 설명 (선택)
  */
 ```
 
-| 번호 | 항목 | 필수 | 설명 |
-|------|------|------|------|
-| 1 | API 제목 | ✅ | 첫 번째 비어있지 않은 줄. 위키 페이지 제목이 됩니다 |
-| 2 | `@apiScope` | ✅ | `external` (사외), `internal` (사내 시스템 간), `private` (팀 내부 전용) |
-| 3 | 상세 설명 | - | 빈 줄 이후 본문. Claude에게 추가 컨텍스트 제공 |
-| 4 | `@param` | ✅* | `@PathVariable`, `@RequestParam` 파라미터는 필수 |
-| 5 | `@return` | - | 응답 내용 설명 |
+| 번호 | 태그 | Spring 어노테이션 | 필수 | 문서 반영 위치 |
+|------|------|---|------|------|
+| 1 | API 제목 | — | ✅ | 위키 페이지 제목 |
+| 2 | `@apiScope` | — | ✅ | `external` (사외) / `internal` (사내) / `private` (팀 내부) |
+| 3 | 상세 설명 | — | - | Claude에게 추가 컨텍스트 제공 |
+| 4 | `@path` | `@PathVariable` | ✅ | Request > URL (Path Variable 비고) |
+| 5 | `@header` | `@RequestHeader` | ✅ | Request > Header |
+| 6 | `@param` | `@RequestParam` | ✅ | Request > Parameters (Query 비고) |
+| 7 | `@body` | `@RequestBody` / `@ModelAttribute` | - | Request > Parameters (Body 비고) — DTO 필드 주석이 있으면 생략 가능 |
+| 8 | `@return` | — | - | Response 설명 |
 
-> **`@RequestBody` 파라미터는 `@param`을 작성하지 않아도 됩니다.** DTO 필드 주석으로 대체합니다.
+---
 
 ### 작성 예시
 
 ```java
+// @PathVariable → @path
 /**
  * Todo 단건 조회
  * @apiScope external
@@ -39,12 +46,14 @@
  * 지정한 ID의 Todo 항목을 반환합니다.
  * 존재하지 않는 ID 요청 시 404를 반환합니다.
  *
- * @param id 조회할 Todo의 고유 식별자
+ * @path id 조회할 Todo의 고유 식별자
  * @return 조회된 Todo 정보
  */
 @GetMapping("/{id}")
 public TodoResponse getById(@PathVariable Long id) { ... }
 
+
+// @RequestParam → @param
 /**
  * Todo 목록 조회
  * @apiScope external
@@ -58,15 +67,42 @@ public Page<TodoResponse> findAll(
         @RequestParam(required = false) TodoStatus status,
         @RequestParam(defaultValue = "0") int page) { ... }
 
+
+// @RequestHeader → @header
+/**
+ * Todo 단건 조회 (내부 시스템)
+ * @apiScope internal
+ *
+ * @path id 조회할 Todo의 고유 식별자
+ * @header X-System-Id 호출 시스템 식별자
+ * @return 조회된 Todo 정보
+ */
+@GetMapping("/{id}")
+public TodoResponse getById(
+        @PathVariable Long id,
+        @RequestHeader("X-System-Id") String systemId) { ... }
+
+
+// @RequestBody → DTO 필드 주석으로 대체, @body 생략
 /**
  * Todo 생성
  * @apiScope external
  *
- * @param request 생성할 Todo 정보
  * @return 생성된 Todo 정보
  */
 @PostMapping
 public TodoResponse create(@RequestBody TodoCreateRequest request) { ... }
+
+
+// @ModelAttribute → DTO 필드 주석으로 대체, @body 생략
+/**
+ * Todo 검색
+ * @apiScope internal
+ *
+ * @return 검색된 Todo 목록
+ */
+@GetMapping("/search")
+public Page<TodoResponse> search(@ModelAttribute TodoSearchRequest request) { ... }
 ```
 
 ---
@@ -128,7 +164,9 @@ public class TodoResponse {
 |------|------|
 | API 제목 | Javadoc 첫 줄이 비어있으면 실패 |
 | `@apiScope` | `internal` / `external` / `private` 중 하나여야 함 |
-| `@param` | `@PathVariable`, `@RequestParam` 파라미터 각각 필요 |
+| `@path` | `@PathVariable` 파라미터 각각 필요 |
+| `@param` | `@RequestParam` 파라미터 각각 필요 |
+| `@header` | `@RequestHeader` 파라미터 각각 필요 |
 
 실패 시 Actions 로그에 누락 항목이 명시됩니다.
 
@@ -136,5 +174,112 @@ public class TodoResponse {
 [ERROR] [GET] /api/v1/todos/{id} — API 문서 주석이 불충분합니다:
   • Javadoc 첫 줄에 API 제목이 없습니다
   • @apiScope 태그가 없거나 올바르지 않습니다
-  • @param id 설명이 없습니다
+  • @path id 설명이 없습니다
 ```
+
+---
+
+## IntelliJ Live Templates
+
+**설정 위치**: `Preferences → Editor → Live Templates → Java`
+
+태그 조합 순서는 `@path → @header → @param → @body → @return` 을 유지합니다.
+태그가 여러 개면 해당 줄을 복사해 추가합니다.
+
+---
+
+### `apidoc` — RequestBody / ModelAttribute (path·param·header 없는 경우)
+
+**Abbreviation**: `apidoc`
+
+```
+/**
+ * $TITLE$
+ * @apiScope $SCOPE$
+ *
+ * $DESC$
+ *
+ * @return $RETURN$
+ */
+```
+
+---
+
+### `apidoc-path` — PathVariable 포함
+
+**Abbreviation**: `apidoc-path`
+
+```
+/**
+ * $TITLE$
+ * @apiScope $SCOPE$
+ *
+ * $DESC$
+ *
+ * @path $NAME$ $NAME_DESC$
+ * @return $RETURN$
+ */
+```
+
+---
+
+### `apidoc-param` — RequestParam 포함
+
+**Abbreviation**: `apidoc-param`
+
+```
+/**
+ * $TITLE$
+ * @apiScope $SCOPE$
+ *
+ * $DESC$
+ *
+ * @param $NAME$ $NAME_DESC$
+ * @return $RETURN$
+ */
+```
+
+---
+
+### `apidoc-header` — RequestHeader 포함
+
+**Abbreviation**: `apidoc-header`
+
+```
+/**
+ * $TITLE$
+ * @apiScope $SCOPE$
+ *
+ * $DESC$
+ *
+ * @header $NAME$ $NAME_DESC$
+ * @return $RETURN$
+ */
+```
+
+---
+
+### `apidto` — DTO 필드 주석
+
+**Abbreviation**: `apidto`
+
+```
+/**
+ * $DESC$
+ * @ex $EXAMPLE$
+ */
+```
+
+---
+
+### 등록 방법
+
+1. `Preferences → Editor → Live Templates` 열기
+2. 우측 `+` → `Template Group` 으로 `API Doc` 그룹 생성
+3. 그룹 선택 후 `+` → `Live Template`
+4. Abbreviation / Template text 입력
+5. 하단 **Define** 클릭 → `Java` 체크 (적용 컨텍스트)
+6. **Edit variables** 에서 `$SCOPE$` 기본값을 `"external"` 로 설정
+7. **OK** 저장
+
+**사용법**: 메서드 위에서 약어 입력 후 `Tab` 키

@@ -1,8 +1,12 @@
 import { ghFetch } from "./github.js";
-import { ORG, REPO_SORT, REPO_WHITELIST } from "../config.js";
+import { ORG, REPO_SORT } from "../config.js";
 
-// org의 모든 레포 목록 (페이징)
-export async function listOrgRepos() {
+// views/repos.js 가 loadMatrix 직전에 주입하는 런타임 whitelist.
+// undefined = 미설정(config 값 사용), null = 필터 없음, array = 필터
+let _runtimeWhitelist = undefined;
+export function setRuntimeWhitelist(list) { _runtimeWhitelist = list; }
+
+async function fetchAllOrgRepos() {
   const out = [];
   let page = 1;
   while (true) {
@@ -13,15 +17,24 @@ export async function listOrgRepos() {
     out.push(...data);
     if (data.length < 100) break;
     page += 1;
-    if (page > 20) break; // safety cap
+    if (page > 20) break;
   }
-  // 화이트리스트 필터
-  if (REPO_WHITELIST && Array.isArray(REPO_WHITELIST)) {
-    const set = new Set(REPO_WHITELIST);
+  return out;
+}
+
+// whitelist 필터 적용한 목록
+export async function listOrgRepos() {
+  const out = await fetchAllOrgRepos();
+  if (_runtimeWhitelist) {
+    const set = new Set(_runtimeWhitelist);
     return out.filter((r) => set.has(r.name));
   }
-  // archived/fork 등은 일단 모두 포함, 사용자가 검색으로 필터링
   return out;
+}
+
+// whitelist 없이 org 전체 목록 (모달용)
+export async function listAllOrgRepos() {
+  return fetchAllOrgRepos();
 }
 
 // 단일 레포의 .github/workflows 디렉토리 listing.
