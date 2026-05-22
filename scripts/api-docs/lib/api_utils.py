@@ -122,17 +122,32 @@ def registry_rel_for(repo_short_name: str) -> str:
 
 # ── Javadoc 파싱 ──────────────────────────────────────────────────────────────
 
+_NAMED_TAGS = {
+    "path": "path_params",   # @path NAME desc   → @PathVariable
+    "param": "params",        # @param NAME desc  → @RequestParam (query)
+    "header": "headers",      # @header NAME desc → @RequestHeader
+    "body": "body_params",    # @body NAME desc   → @RequestBody/@ModelAttribute 필드
+}
+
+
 def _parse_javadoc(comment_text: str) -> dict:
     """/** ... */ 블록을 파싱해 구조화된 dict 반환.
 
     Returns:
         title       : 첫 번째 비어있지 않은 줄
         description : 태그 이전의 나머지 본문
-        params      : {'paramName': '설명'}
+        path_params : {'name': '설명'}  — @path (@PathVariable)
+        params      : {'name': '설명'}  — @param (@RequestParam, query)
+        headers     : {'name': '설명'}  — @header (@RequestHeader)
+        body_params : {'name': '설명'}  — @body (@RequestBody/@ModelAttribute 필드)
         returns     : @return 설명
-        doc_url     : @apiScope 값 (internal | external | '')
+        doc_url     : @apiScope 값 (internal | external | private | '')
     """
-    result = {"title": "", "description": "", "params": {}, "returns": "", "doc_url": ""}
+    result = {
+        "title": "", "description": "",
+        "path_params": {}, "params": {}, "headers": {}, "body_params": {},
+        "returns": "", "doc_url": "",
+    }
 
     lines = []
     for line in comment_text.splitlines():
@@ -149,8 +164,8 @@ def _parse_javadoc(comment_text: str) -> dict:
 
     def _flush():
         text = " ".join(cur_buf).strip()
-        if cur_tag == "param" and cur_name:
-            result["params"][cur_name] = text
+        if cur_tag in _NAMED_TAGS and cur_name:
+            result[_NAMED_TAGS[cur_tag]][cur_name] = text
         elif cur_tag == "return":
             result["returns"] = text
 
@@ -160,12 +175,13 @@ def _parse_javadoc(comment_text: str) -> dict:
             cur_buf = []
             parts = line.split(None, 2)
             tag = parts[0][1:]
-            if tag == "param" and len(parts) >= 2:
-                cur_tag, cur_name = "param", parts[1]
+            if tag in _NAMED_TAGS and len(parts) >= 2:
+                cur_tag, cur_name = tag, parts[1]
                 cur_buf = [parts[2]] if len(parts) > 2 else []
             elif tag in ("return", "returns"):
                 cur_tag, cur_name = "return", None
-                cur_buf = [parts[1]] if len(parts) > 1 else []
+                # `@return rest of line` — split(None, 2) 의 잔여 토큰까지 모두 합침
+                cur_buf = [line.split(None, 1)[1]] if len(parts) > 1 else []
             elif tag == "apiScope":
                 result["doc_url"] = parts[1].strip() if len(parts) > 1 else ""
                 cur_tag, cur_name = None, None  # 단일 값 태그 — 이후 줄은 누적하지 않음
@@ -422,7 +438,13 @@ def parse_enum_constants(filepath: str) -> dict:
 
 
 def check_javadoc_completeness(javadoc: dict, method_params: dict) -> list:
-    """Javadoc 필수 항목 누락 여부 검사. 오류 메시지 리스트 반환 (빈 리스트 = 통과)."""
+    """Javadoc 필수 항목 누락 여부 검사. 오류 메시지 리스트 반환 (빈 리스트 = 통과).
+
+    태그 매핑:
+        @PathVariable  → @path  (구버전 @param 도 인정)
+        @RequestParam  → @param
+        @RequestHeader → @header (구버전 @param 도 인정)
+    """
     errors = []
 
     if not javadoc.get("title"):
@@ -435,13 +457,30 @@ def check_javadoc_completeness(javadoc: dict, method_params: dict) -> list:
             "  예) @apiScope external"
         )
 
-    param_descs = javadoc.get("params", {})
+    path_descs = javadoc.get("path_params", {})
+    query_descs = javadoc.get("params", {})
+    header_descs = javadoc.get("headers", {})
+
     for name, info in method_params.items():
-        if info["kind"] in ("path", "query") and not param_descs.get(name):
-            errors.append(
-                f"@param {name} 설명이 없습니다\n"
-                f"  예) @param {name} 이 파라미터에 대한 설명"
-            )
+        kind = info["kind"]
+        if kind == "path":
+            if not (path_descs.get(name) or query_descs.get(name)):
+                errors.append(
+                    f"@path {name} 설명이 없습니다 (@PathVariable)\n"
+                    f"  예) @path {name} 이 path variable 에 대한 설명"
+                )
+        elif kind == "query":
+            if not query_descs.get(name):
+                errors.append(
+                    f"@param {name} 설명이 없습니다 (@RequestParam)\n"
+                    f"  예) @param {name} 이 query parameter 에 대한 설명"
+                )
+        elif kind == "header":
+            if not (header_descs.get(name) or query_descs.get(name)):
+                errors.append(
+                    f"@header {name} 설명이 없습니다 (@RequestHeader)\n"
+                    f"  예) @header {name} 이 header 에 대한 설명"
+                )
 
     return errors
 
@@ -524,20 +563,37 @@ def format_doc_hints(javadoc: dict, method_params: dict, field_docs: dict,
     if javadoc.get("description"):
         parts.append(f"### API 설명\n{javadoc['description']}")
 
-    param_descs = javadoc.get("params", {})
-    path_rows, query_rows, body_rows = [], [], []
+    path_descs = javadoc.get("path_params", {})
+    query_descs = javadoc.get("params", {})
+    header_descs = javadoc.get("headers", {})
+    body_descs = javadoc.get("body_params", {})
+
+    path_rows, query_rows, header_rows, body_rows = [], [], [], []
 
     for name, info in method_params.items():
-        desc = param_descs.get(name, "")
-        if info["kind"] == "path":
+        kind = info["kind"]
+        if kind == "path":
+            desc = path_descs.get(name) or query_descs.get(name, "")
             path_rows.append(f"| {name} | {info['type']} | {desc} |")
-        elif info["kind"] == "query":
+        elif kind == "query":
+            desc = query_descs.get(name, "")
             req = "N" if not info["required"] else "Y"
             default = info["default"] if info["default"] is not None else "-"
             query_rows.append(f"| {name} | {info['type']} | {req} | {default} | {desc} |")
-        elif info["kind"] == "body":
+        elif kind == "header":
+            desc = header_descs.get(name) or query_descs.get(name, "")
+            req = "N" if not info["required"] else "Y"
+            header_rows.append(f"| {name} | {req} | {info['type']} | {desc} |")
+        elif kind == "body":
+            desc = body_descs.get(name) or query_descs.get(name, "")
             body_rows.append(f"- {name} ({info['type']}): {desc}")
 
+    if header_rows:
+        parts.append(
+            "### Request Headers\n"
+            "| 항목명 | 필수여부 | 타입 | 의미 |\n|--------|--------|------|------|\n"
+            + "\n".join(header_rows)
+        )
     if path_rows:
         parts.append(
             "### Path Variables\n"
