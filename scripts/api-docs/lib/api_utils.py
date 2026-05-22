@@ -539,10 +539,106 @@ import difflib
 DIFF_SECTION_TITLE = "이전 버전과의 변경사항"
 
 
+def _diff_signature(line: str) -> str:
+    """Diff 비교 시 의미 없는 차이(공백·마크다운 포매팅)를 제거한 signature.
+
+    - 백틱 / bold 마커 / italic 마커 모두 제거
+    - 모든 공백 제거 (한글-조사 사이 공백 변화 같은 노이즈 무시)
+    - 빈 줄은 빈 signature 로 통일
+    """
+    s = line
+    s = re.sub(r"`+", "", s)
+    s = re.sub(r"\*+", "", s)
+    s = re.sub(r"\s+", "", s)
+    return s
+
+
+def _filter_noise_pairs(diff_lines: list) -> list:
+    """unified_diff 출력에서 의미 변경 없는 -/+ 쌍을 context 로 변환.
+
+    인접한 `-line` 과 `+line` 의 signature 가 동일하면 둘 다 ` line` (context) 으로
+    바꿔 표시. 다수 - 와 다수 + 가 한 블록일 때는 같은 길이로 짝지어 비교.
+    헤더(---, +++, @@) 는 그대로 둔다.
+    """
+    out = []
+    i = 0
+    n = len(diff_lines)
+    while i < n:
+        ln = diff_lines[i]
+        # 헤더는 그대로
+        if ln.startswith("--- ") or ln.startswith("+++ ") or ln.startswith("@@"):
+            out.append(ln)
+            i += 1
+            continue
+        # 연속 '-' 블록 → 이어지는 연속 '+' 블록 짝짓기
+        if ln.startswith("-"):
+            minus_block, j = [], i
+            while j < n and diff_lines[j].startswith("-") and not diff_lines[j].startswith("--- "):
+                minus_block.append(diff_lines[j]); j += 1
+            plus_block, k = [], j
+            while k < n and diff_lines[k].startswith("+") and not diff_lines[k].startswith("+++ "):
+                plus_block.append(diff_lines[k]); k += 1
+            # 1:1 페어링 가능 만큼 노이즈 검사
+            paired = min(len(minus_block), len(plus_block))
+            kept_minus, kept_plus = [], []
+            for idx in range(paired):
+                m_line = minus_block[idx]
+                p_line = plus_block[idx]
+                if _diff_signature(m_line[1:]) == _diff_signature(p_line[1:]):
+                    # 의미 변경 없음 → context 로 보존 (new 쪽 텍스트로)
+                    out.append(" " + p_line[1:])
+                else:
+                    kept_minus.append(m_line)
+                    kept_plus.append(p_line)
+            # 짝 못 지은 잉여
+            kept_minus.extend(minus_block[paired:])
+            kept_plus.extend(plus_block[paired:])
+            out.extend(kept_minus)
+            out.extend(kept_plus)
+            i = k
+            continue
+        out.append(ln)
+        i += 1
+    return out
+
+
+def _hunk_has_changes(hunk_lines: list) -> bool:
+    """hunk 안에 실제 -/+ 가 남아있는지"""
+    for ln in hunk_lines:
+        if ln.startswith("--- ") or ln.startswith("+++ ") or ln.startswith("@@"):
+            continue
+        if ln.startswith("-") or ln.startswith("+"):
+            return True
+    return False
+
+
+def _drop_empty_hunks(diff_lines: list) -> list:
+    """필터링 후 변경 없는 hunk(@@) 는 제거"""
+    out = []
+    i = 0
+    n = len(diff_lines)
+    while i < n:
+        ln = diff_lines[i]
+        if ln.startswith("--- ") or ln.startswith("+++ "):
+            out.append(ln); i += 1; continue
+        if ln.startswith("@@"):
+            # hunk 모으기
+            hunk = [ln]; j = i + 1
+            while j < n and not diff_lines[j].startswith("@@") and not diff_lines[j].startswith("--- "):
+                hunk.append(diff_lines[j]); j += 1
+            if _hunk_has_changes(hunk):
+                out.extend(hunk)
+            i = j
+            continue
+        out.append(ln); i += 1
+    return out
+
+
 def build_diff_block(prev_content: str, new_content: str,
                      max_lines: int = 200) -> str:
     """수정 Draft 용 unified diff 섹션 생성.
 
+    의미 변경(텍스트 차이) 만 강조. 공백/백틱 같은 마크다운 포매팅 차이는 필터링.
     변경 사항이 없으면 빈 문자열 반환. 너무 길면 max_lines 까지만 노출하고
     잘렸음을 알리는 주석을 덧붙인다. publish 시 strip 으로 제거된다.
     """
@@ -558,18 +654,30 @@ def build_diff_block(prev_content: str, new_content: str,
     ))
     if not diff_lines:
         return ""
+
+    # 노이즈 필터링 — 공백/백틱만 다른 -/+ 쌍 제거, 빈 hunk 제거
+    diff_lines = _filter_noise_pairs(diff_lines)
+    diff_lines = _drop_empty_hunks(diff_lines)
+    # 헤더 외 실제 변경 라인이 없으면 빈 결과
+    if not any(
+        (ln.startswith("-") and not ln.startswith("--- "))
+        or (ln.startswith("+") and not ln.startswith("+++ "))
+        for ln in diff_lines
+    ):
+        return ""
+
     truncated = False
     if len(diff_lines) > max_lines:
         diff_lines = diff_lines[:max_lines]
         truncated = True
     body = "".join(diff_lines)
-    # diff 블록 내에 ``` 가 들어가지 않도록 보호 (마크다운 코드블록 깨짐 방지)
-    body = body.replace("```", "``​`")
+    body = body.replace("```", "``​`")  # 코드블록 깨짐 방지
     note = "\n\n_diff 가 너무 길어 일부만 표시되었습니다._" if truncated else ""
     return (
         f"\n\n---\n\n"
         f"### 📝 {DIFF_SECTION_TITLE}\n\n"
-        f"> publish 시 자동으로 제거됩니다. 검토 후 변경 의도가 맞는지 확인해주세요.\n\n"
+        f"> publish 시 자동으로 제거됩니다. 검토 후 변경 의도가 맞는지 확인해주세요.\n"
+        f"> 공백·마크다운 포매팅 차이는 필터링되어, 텍스트 변경만 강조합니다.\n\n"
         f"```diff\n{body}```{note}\n"
     )
 
