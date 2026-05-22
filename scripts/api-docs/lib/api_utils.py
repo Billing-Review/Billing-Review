@@ -244,14 +244,24 @@ def _parse_method_params(sig_text: str) -> dict:
     if cur.strip():
         raw_params.append(cur.strip())
 
+    def _ann_name(text: str, annotation: str):
+        """@RequestHeader("X-Caller-Id") / @RequestHeader(value="X") / @RequestHeader(name="X")
+        형태에서 외부 이름 추출. 없으면 None."""
+        pat = rf'@{annotation}\s*\(\s*(?:(?:value|name)\s*=\s*)?"([^"]+)"'
+        m = re.search(pat, text)
+        return m.group(1) if m else None
+
     result = {}
     for param in raw_params:
         kind, required, default_val = "other", True, None
+        external_name = None
 
         if "@PathVariable" in param:
             kind = "path"
+            external_name = _ann_name(param, "PathVariable")
         elif "@RequestParam" in param:
             kind = "query"
+            external_name = _ann_name(param, "RequestParam")
             if re.search(r"required\s*=\s*false", param):
                 required = False
             dv = re.search(r'defaultValue\s*=\s*"([^"]*)"', param)
@@ -261,13 +271,16 @@ def _parse_method_params(sig_text: str) -> dict:
             kind = "body"
         elif "@RequestHeader" in param:
             kind = "header"
+            external_name = _ann_name(param, "RequestHeader")
 
         # 어노테이션 제거 후 타입·이름 추출
         clean = re.sub(r"@\w+(\([^)]*\))?\s*", "", param).strip()
         clean = re.sub(r"\bfinal\b", "", clean).strip()
         parts = clean.split()
         if len(parts) >= 2:
-            result[parts[-1]] = {
+            # 어노테이션에 명시된 외부 이름(예: 'X-Caller-Id') 이 있으면 그것을, 없으면 자바 파라미터명 사용
+            key = external_name or parts[-1]
+            result[key] = {
                 "kind": kind,
                 "type": parts[-2],
                 "required": required,
@@ -332,9 +345,18 @@ def extract_javadoc_and_params(filepath: str, http_method: str, path: str) -> di
             comment = "".join(lines[start_idx:end_idx + 1])
             result["javadoc"] = _parse_javadoc(comment)
 
-    # 메서드 시그니처 추출 (파라미터 어노테이션 파싱용)
+    # 메서드 시그니처 추출 (파라미터 어노테이션 파싱용).
+    # 매핑 라인 아래의 어노테이션·빈 줄을 건너뛰어 실제 메서드 선언 라인부터 paren 균형을 추적한다.
+    sig_start = mapping_idx + 1
+    while sig_start < len(lines):
+        s = lines[sig_start].lstrip()
+        if not s or s.startswith("@") or s.startswith("//") or s.startswith("/*"):
+            sig_start += 1
+            continue
+        break
+
     sig_lines, depth, found_open = [], 0, False
-    for i in range(mapping_idx, min(mapping_idx + 30, len(lines))):
+    for i in range(sig_start, min(sig_start + 30, len(lines))):
         sig_lines.append(lines[i])
         for ch in lines[i]:
             if ch == "(":

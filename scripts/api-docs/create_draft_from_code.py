@@ -337,7 +337,8 @@ def main():
     doc_content = f"{header}{body}"
 
     # 신규 / 수정 분기 — 수정은 이전 버전 fetch 해서 diff 섹션 추가
-    is_update = isinstance(existing, dict) and existing.get("status") in ("published", "deprecated")
+    # 한 번이라도 publish 됐으면 (= page_id 존재) 수정 케이스로 본다.
+    is_update = isinstance(existing, dict) and bool(existing.get("page_id"))
     if is_update and existing.get("page_id"):
         try:
             _, existing_doc = get_page(

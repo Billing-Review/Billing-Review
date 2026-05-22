@@ -677,9 +677,11 @@ def main():
             or infer_url_hint(path, ctrl_file)
         )
 
+        # 한 번이라도 publish 됐으면 (= page_id 존재) 수정 케이스로 본다.
+        # status 는 draft 사이클 사이 'draft' 로 바뀌어도 page_id 는 유지되므로 그쪽으로 판단.
         is_update = (
             isinstance(existing_entry, dict)
-            and existing_entry.get("status") in ("published", "deprecated")
+            and bool(existing_entry.get("page_id"))
         )
         prefix = "[API Draft][수정]" if is_update else "[API Draft][신규]"
         # draft 페이지 제목: Javadoc 제목 우선, 없으면 method + path
