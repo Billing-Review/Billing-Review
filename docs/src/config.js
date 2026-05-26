@@ -64,13 +64,6 @@ export const FEATURES = [
   },
 ];
 
-// service-config.json 에 항상 받을 환경 목록 (필수/선택)
-export const SERVICE_CONFIG_ENVIRONMENTS = [
-  { key: "Alpha", required: true,  placeholder: "https://alpha-{service}.example.com" },
-  { key: "Beta",  required: false, placeholder: "https://beta-{service}.example.com" },
-  { key: "Real",  required: true,  placeholder: "https://{service}.example.com" },
-];
-
 // 레포 목록 정렬 기준: "updated" | "name" | "created"
 export const REPO_SORT = "updated";
 

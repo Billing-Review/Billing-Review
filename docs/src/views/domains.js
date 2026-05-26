@@ -6,8 +6,7 @@ import {
   deleteServiceEntry,
   parseGatewayYml,
 } from "../api/service-config.js";
-
-const DEFAULT_ENV_KEYS = ["Alpha", "Beta", "Real"];
+import { buildEnvForm } from "../utils/env-form.js";
 
 export async function renderDomains(root, selected /* optional serviceName */) {
   const listEl = h("div", { class: "sidebar__list" });
@@ -92,32 +91,8 @@ export async function renderDomains(root, selected /* optional serviceName */) {
       checked: !!entry.useGateway,
     });
 
-    const envInputs = {};
-    const envContainer = h("div");
+    const envForm = buildEnvForm(entry.environments || {}, { serviceName: name });
     const groupsContainer = h("div");
-
-    function renderEnvForm() {
-      clear(envContainer);
-      const envs = (entry.environments && Object.keys(entry.environments).length)
-        ? entry.environments
-        : Object.fromEntries(DEFAULT_ENV_KEYS.map((k) => [k, ""]));
-      // 입력 폼: 키/값 표
-      for (const k of Object.keys(envs).length ? Object.keys(envs) : DEFAULT_ENV_KEYS) {
-        if (!(k in envInputs)) {
-          envInputs[k] = h("input", {
-            type: "text",
-            value: envs[k] || "",
-            placeholder: `https://...`,
-          });
-        }
-        envContainer.appendChild(
-          h("div", { class: "env-row" },
-            h("label", { class: "env-row__label" }, k),
-            envInputs[k]
-          )
-        );
-      }
-    }
 
     function renderGroups() {
       clear(groupsContainer);
@@ -208,7 +183,7 @@ export async function renderDomains(root, selected /* optional serviceName */) {
         h("div", { class: "modal__header" },
           h("h3", { class: "modal__title" }, editIdx == null ? "그룹 추가" : "그룹 수정"),
         ),
-        h("div", { style: { padding: "0 24px" } },
+        h("div", { class: "modal__body" },
           h("div", { class: "field" },
             h("label", null, "Gateway YML (선택 — 붙여넣고 파싱 버튼)"),
             ymlInput,
@@ -267,12 +242,8 @@ export async function renderDomains(root, selected /* optional serviceName */) {
     const saveBtn = h("button", { class: "btn", onclick: async () => {
       const newEntry = {
         useGateway: useGatewayCheck.checked,
-        environments: {},
+        environments: envForm.getValues(),
       };
-      for (const [k, inp] of Object.entries(envInputs)) {
-        const v = inp.value.trim();
-        if (v) newEntry.environments[k] = v;
-      }
       if (useGatewayCheck.checked && entry.groups) {
         newEntry.groups = entry.groups;
       }
@@ -307,7 +278,6 @@ export async function renderDomains(root, selected /* optional serviceName */) {
       },
     }, "삭제");
 
-    renderEnvForm();
     renderGroups();
 
     return h("div", { class: "card" },
@@ -328,7 +298,8 @@ export async function renderDomains(root, selected /* optional serviceName */) {
           ? "게이트웨이 도메인을 입력하세요 (서비스 자체 도메인이 아니라 게이트웨이의 외부 도메인)."
           : "이 서비스의 도메인을 환경별로 입력하세요."
       ),
-      envContainer,
+      envForm.container,
+      h("div", { style: { marginTop: "8px" } }, envForm.addBtn),
       groupsContainer,
       h("div", { style: { textAlign: "right", marginTop: "16px" } }, saveBtn)
     );
@@ -348,7 +319,7 @@ export async function renderDomains(root, selected /* optional serviceName */) {
       h("div", { class: "modal__header" },
         h("h3", { class: "modal__title" }, "서비스 추가"),
       ),
-      h("div", { style: { padding: "0 24px" } },
+      h("div", { class: "modal__body" },
         h("div", { class: "field" },
           h("label", null, "서비스 이름 (= GitHub 레포명)"),
           nameInput

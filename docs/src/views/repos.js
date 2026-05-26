@@ -290,12 +290,19 @@ export async function renderRepos(root, repoName /* optional */) {
         ),
         h(
           "div",
-          { style: { display: "flex", gap: "8px" } },
+          { style: { display: "flex", gap: "8px", flexWrap: "wrap" } },
           status["rest-api-docs"] === "applied"
             ? h(
                 "a",
                 { class: "btn btn--small", href: `#/api-docs/${repo.name}` },
                 "API Docs 관리"
+              )
+            : null,
+          status["rest-api-docs"] === "applied"
+            ? h(
+                "a",
+                { class: "btn btn--small", href: `#/domains/${repo.name}` },
+                "도메인 관리"
               )
             : null,
           h(

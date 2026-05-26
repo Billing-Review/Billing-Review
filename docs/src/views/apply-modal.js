@@ -1,12 +1,9 @@
 import { h, mount, clear } from "../utils/dom.js";
 import { getFileContent, putFile, getRepo } from "../api/repos.js";
-import {
-  ORG,
-  SHARED_WORKFLOWS_REPO,
-  SERVICE_CONFIG_ENVIRONMENTS,
-} from "../config.js";
+import { ORG, SHARED_WORKFLOWS_REPO } from "../config.js";
 import { readServiceEntry, upsertServiceEntry } from "../api/service-config.js";
 import { toast } from "../utils/toast.js";
+import { buildEnvForm } from "../utils/env-form.js";
 
 // 적용 모달.
 //   feature : FEATURES[i]
@@ -39,35 +36,12 @@ export function openApplyModal(feature, targetRepo, onDone) {
   );
 
   // ─── extraSetup === "service-config" 인 경우 env URL 입력 폼 ───
-  const envInputs = {};
+  let envForm = null;
   let envFormEl = null;
   let needsServiceConfig = feature.extraSetup === "service-config";
 
   if (needsServiceConfig) {
-    const rows = SERVICE_CONFIG_ENVIRONMENTS.map((env) => {
-      const input = h("input", {
-        type: "text",
-        placeholder: env.placeholder.replace("{service}", targetRepo.name),
-      });
-      envInputs[env.key] = input;
-      return h(
-        "div",
-        { class: "env-row" },
-        h(
-          "label",
-          { class: "env-row__label" },
-          env.key,
-          env.required
-            ? h("span", { style: { color: "var(--danger)" } }, " *")
-            : h(
-                "span",
-                { style: { color: "var(--text-muted)", fontSize: "11px" } },
-                " (선택)"
-              )
-        ),
-        input
-      );
-    });
+    envForm = buildEnvForm({}, { serviceName: targetRepo.name });
     envFormEl = h(
       "div",
       { class: "env-form" },
@@ -79,49 +53,30 @@ export function openApplyModal(feature, targetRepo, onDone) {
       h(
         "p",
         { style: { fontSize: "12px", color: "#656d76", margin: "0 0 8px 0" } },
-        `shared-workflows/rest-api-docs/service-config.json 에 "${targetRepo.name}" 항목으로 저장됩니다. 비워두면 그 환경은 등록되지 않습니다.`
+        `shared-workflows/rest-api-docs/service-config.json 에 "${targetRepo.name}" 항목으로 저장됩니다. 환경명·URL 자유롭게 추가/삭제 가능.`
       ),
-      ...rows
+      envForm.container,
+      h("div", { style: { marginTop: "6px" } }, envForm.addBtn)
     );
 
     // 기존 값이 있으면 미리 채워넣기
     readServiceEntry(targetRepo.name)
       .then((entry) => {
-        if (entry && entry.environments) {
-          for (const [k, v] of Object.entries(entry.environments)) {
-            if (envInputs[k]) envInputs[k].value = v;
-          }
+        if (entry && entry.environments && Object.keys(entry.environments).length) {
+          envForm.reset(entry.environments);
         }
       })
       .catch(() => {});
   }
 
   applyBtn.addEventListener("click", async () => {
-    // 폼 검증
-    if (needsServiceConfig) {
-      const missing = SERVICE_CONFIG_ENVIRONMENTS.filter(
-        (env) => env.required && !envInputs[env.key].value.trim()
-      );
-      if (missing.length) {
-        toast(
-          `필수 항목 누락: ${missing.map((m) => m.key).join(", ")}`,
-          "error"
-        );
-        return;
-      }
-    }
-
     applyBtn.disabled = true;
     applyBtn.textContent = "적용 중...";
     try {
       await applyFeature(feature, targetRepo, statusBox);
 
       if (needsServiceConfig) {
-        const environments = {};
-        for (const env of SERVICE_CONFIG_ENVIRONMENTS) {
-          const v = envInputs[env.key].value.trim();
-          if (v) environments[env.key] = v;
-        }
+        const environments = envForm.getValues();
         appendStatus(statusBox, `→ service-config.json 갱신 중...`);
         await upsertServiceEntry(targetRepo.name, environments);
         appendStatus(statusBox, `✓ service-config.json 갱신 완료`);
@@ -142,21 +97,27 @@ export function openApplyModal(feature, targetRepo, onDone) {
     h(
       "div",
       { class: "modal", onclick: (e) => e.stopPropagation() },
-      h("h3", { class: "modal__title" }, `${feature.label} 적용`),
-      h(
-        "p",
-        null,
-        h("strong", null, `${ORG}/${targetRepo.name}`),
-        " 의 default branch에 다음 파일을 추가합니다:"
+      h("div", { class: "modal__header" },
+        h("h3", { class: "modal__title" }, `${feature.label} 적용`),
       ),
-      fileList,
       h(
-        "p",
-        { style: { fontSize: "12px", color: "#656d76", marginTop: "12px" } },
-        "이미 존재하는 파일은 내용이 덮어쓰기됩니다."
+        "div",
+        { class: "modal__body" },
+        h(
+          "p",
+          null,
+          h("strong", null, `${ORG}/${targetRepo.name}`),
+          " 의 default branch에 다음 파일을 추가합니다:"
+        ),
+        fileList,
+        h(
+          "p",
+          { style: { fontSize: "12px", color: "#656d76", marginTop: "12px" } },
+          "이미 존재하는 파일은 내용이 덮어쓰기됩니다."
+        ),
+        envFormEl,
+        statusBox
       ),
-      envFormEl,
-      statusBox,
       h("div", { class: "modal__actions" }, cancelBtn, applyBtn)
     )
   );

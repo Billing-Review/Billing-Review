@@ -230,24 +230,83 @@ body {
 .env-form {
   margin-top: 8px;
 }
+.env-form__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 .env-row {
   display: grid;
   grid-template-columns: 80px 1fr;
   gap: 8px;
   align-items: center;
-  margin-bottom: 6px;
+}
+.env-row--editable {
+  grid-template-columns: 120px 1fr auto;
 }
 .env-row__label {
   font-size: 13px;
   font-weight: 500;
   color: var(--text);
 }
-.env-row input {
+.env-row input,
+.env-row__key,
+.env-row__url {
   padding: 6px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 13px;
   font-family: monospace;
+  background: white;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.env-row input:focus,
+.env-row__key:focus,
+.env-row__url:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.12);
+}
+
+/* ── Modal form fields (그룹 추가 모달 등 일반 모달 input) ── */
+.modal .field {
+  margin-bottom: 12px;
+}
+.modal .field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.modal .field input[type="text"],
+.modal .field input[type="password"],
+.modal .field input[type="search"],
+.modal .field textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: monospace;
+  background: var(--bg);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+.modal .field input[type="text"]:focus,
+.modal .field input[type="password"]:focus,
+.modal .field input[type="search"]:focus,
+.modal .field textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.12);
+  background: white;
+}
+.modal hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 16px 0;
 }
 
 /* ── Deploy view ───────────────────────────────────── */
@@ -438,12 +497,31 @@ body {
   background: var(--bg-card);
   border-radius: 12px;
   width: 90%;
-  max-width: 480px;
+  max-width: 640px;
+  max-height: 85vh;
   box-shadow: 0 8px 32px rgba(0,0,0,0.18), 0 1px 4px rgba(0,0,0,0.08);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   animation: slideUp 0.18s ease;
+}
+.modal__body {
+  padding: 16px 24px 20px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.modal__header + .modal__body {
+  padding-top: 0;
+}
+.modal__title { font-size: 18px; font-weight: 600; margin: 0; }
+.modal__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 24px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
 }
 @keyframes slideUp { from { transform: translateY(12px); opacity: 0; } }
 .modal__header {
