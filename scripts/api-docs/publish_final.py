@@ -22,6 +22,7 @@ from lib.api_utils import (
     read_registry, write_registry, set_output,
     registry_path_for, registry_rel_for,
     get_repo_page_id, set_repo_page_id,
+    parse_domain_table,
 )
 from lib.dooray import (
     create_page, delete_page, get_child_pages, get_page,
@@ -135,6 +136,11 @@ def main():
     )
     clean_content = strip_draft_meta(draft_content)
 
+    # 본문의 Domain 표 파싱 → registry 에 보존 (다음 Draft 의 fallback 으로 사용)
+    domains = parse_domain_table(clean_content)
+    if domains:
+        print(f"[INFO] Domain 표에서 환경 URL 추출: {domains}")
+
     existing_page_id = entry.get("page_id")
 
     # 위키 페이지 생성 또는 교체
@@ -161,6 +167,8 @@ def main():
 
     # registry 갱신
     now = now_kst_iso()
+    # 새로 파싱된 domains 가 있으면 갱신, 없으면 기존 값 유지
+    next_domains = domains or entry.get("domains") or None
     registry[api_key] = {
         **entry,
         "status": "published",
@@ -170,6 +178,7 @@ def main():
         "created_at": entry.get("created_at", now) or now,
         "updated_at": now,
         "deprecated_at": entry.get("deprecated_at"),
+        "domains": next_domains,
     }
     write_registry(reg_path, registry)
     git_commit_and_push(

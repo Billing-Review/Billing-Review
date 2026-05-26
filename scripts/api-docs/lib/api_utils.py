@@ -189,6 +189,58 @@ def list_services(full_config: dict) -> list:
     return [k for k in full_config.keys() if not k.startswith("_")]
 
 
+_ENV_NAME_MAP = {
+    "알파": "Alpha", "alpha": "Alpha", "Alpha": "Alpha",
+    "베타": "Beta",  "beta": "Beta",   "Beta": "Beta",
+    "리얼": "Real",  "real": "Real",   "Real": "Real",
+}
+
+
+def parse_domain_table(content: str) -> dict:
+    """문서 본문의 '**Domain**' 표에서 환경별 Base URL 추출.
+
+    템플릿 형식:
+        **Domain**
+
+        | 환경 | URL |
+        | --- | --- |
+        | 알파 | https://alpha-... |
+        | 리얼 | https://... |
+
+    한글 환경명(알파/베타/리얼) 은 영문 키(Alpha/Beta/Real) 로 매핑.
+    표가 없거나 비어있으면 빈 dict.
+    """
+    if not content:
+        return {}
+    m = re.search(r"\*\*Domain\*\*\s*\n\s*\n([\s\S]*?)(?=\n\n(?:#|\*\*)|\Z)", content)
+    if not m:
+        return {}
+    table_block = m.group(1)
+    domains = {}
+    for line in table_block.splitlines():
+        line = line.strip()
+        if not line.startswith("|"):
+            continue
+        # 구분선 / 헤더 줄 스킵
+        if set(line.replace("|", "").strip()) <= {"-", " ", ":"}:
+            continue
+        cells = [c.strip().strip("`") for c in line.strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        env_name, url = cells[0], cells[1]
+        if not env_name or not url:
+            continue
+        if env_name in ("환경", "Environment", "Env"):
+            continue
+        # 마크다운 링크에서 URL 만 추출 (예: [text](url))
+        link_m = re.match(r"\[.*?\]\((.+?)\)", url)
+        if link_m:
+            url = link_m.group(1)
+        normalized = _ENV_NAME_MAP.get(env_name) or _ENV_NAME_MAP.get(env_name.lower()) or env_name
+        domains[normalized] = url
+    return domains
+
+
 def build_env_url_section(envs: dict) -> str:
     """{환경:URL} dict 을 Claude 프롬프트용 '서버 URL' 표로 변환.
 
