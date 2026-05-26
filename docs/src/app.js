@@ -40,6 +40,7 @@ function updateNavActive(hash) {
     if (target === "#/repos" && hash.startsWith("#/repos")) active = true;
     if (target === "#/overview" && hash.startsWith("#/overview")) active = true;
     if (target === "#/deploy" && hash.startsWith("#/deploy")) active = true;
+    if (target === "#/domains" && hash.startsWith("#/domains")) active = true;
     el.classList.toggle("is-active", active);
   });
 }
@@ -77,6 +78,13 @@ async function navigate() {
   if (hash === "#/deploy") return renderDeploy(root);
   const deployMatch = hash.match(/^#\/deploy\/([^/]+)$/);
   if (deployMatch) return renderDeploy(root, decodeURIComponent(deployMatch[1]));
+
+  // 도메인 관리
+  if (hash === "#/domains" || hash.startsWith("#/domains/")) {
+    const { renderDomains } = await import("./views/domains.js");
+    const m = hash.match(/^#\/domains\/([^/]+)$/);
+    return renderDomains(root, m ? decodeURIComponent(m[1]) : null);
+  }
 
   // 디테일 화면 (사이드바 뷰에서 진입)
   const apiDocsMatch = hash.match(/^#\/api-docs\/([^/]+)$/);
