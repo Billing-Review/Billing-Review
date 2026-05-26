@@ -406,7 +406,7 @@ def generate_doc(method: str, path: str, ctrl_file: str, full_diff: str,
                  pr_title: str, pr_body: str, existing_doc: str,
                  system_prompt: str, template: str,
                  service_config=None, prev_doc: str = "",
-                 full_service_config=None) -> tuple:
+                 full_service_config=None, registry_entry=None) -> tuple:
     method_code = extract_method_for_api(ctrl_file, method, path)
     related = find_related_files([ctrl_file])
     code_content = f"### [Controller] {ctrl_file}\n```java\n{method_code}\n```"
@@ -443,6 +443,13 @@ def generate_doc(method: str, path: str, ctrl_file: str, full_diff: str,
     full_cfg = full_service_config or {}
     group = find_group_for_controller(ctrl_file, repo_cfg)
     envs = resolve_environments(repo_cfg, full_cfg, group)
+    env_source = "service-config" if envs else None
+    # fallback: 이전 publish 본문에서 추출된 registry.domains 사용
+    if not envs and isinstance(registry_entry, dict):
+        reg_domains = registry_entry.get("domains") or {}
+        if reg_domains:
+            envs = reg_domains
+            env_source = "registry(이전 published 본문에서 자동 추출)"
     external_path = apply_gateway_transform(path, group)
     env_url_section = build_env_url_section(envs)
 
@@ -451,6 +458,14 @@ def generate_doc(method: str, path: str, ctrl_file: str, full_diff: str,
         env_url_hint = (
             f"\n{env_url_section}\n"
             f"위 서버 URL을 문서의 '서버 URL' / 'Domain' 섹션에 반드시 포함하세요.\n"
+        )
+        if env_source:
+            env_url_hint += f"_({env_source} 기준)_\n"
+    else:
+        env_url_hint = (
+            "\n**[서버 URL 미정]** service-config 와 registry 모두 도메인 정보가 없습니다.\n"
+            "문서의 'Domain' 표는 URL 셀을 빈 채로 두세요. 검토자가 직접 채워 publish 하면\n"
+            "다음 Draft 부터 registry 가 자동으로 기억합니다.\n"
         )
     if group and external_path != path:
         env_url_hint += (
@@ -689,6 +704,7 @@ def main():
             service_config=service_config,
             prev_doc=prev_doc,
             full_service_config=full_service_config,
+            registry_entry=existing_entry,
         )
 
         # url_hint 우선순위: @docUrl > registry > 추론
