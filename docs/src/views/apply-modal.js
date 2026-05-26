@@ -44,19 +44,37 @@ export function openApplyModal(feature, targetRepo, onDone) {
     envForm = buildEnvForm({}, { serviceName: targetRepo.name });
     envFormEl = h(
       "div",
-      { class: "env-form" },
+      { class: "quick-setup" },
       h(
         "div",
-        { class: "section-title", style: { marginTop: "16px" } },
-        "서버 URL 등록"
+        { class: "quick-setup__head" },
+        h("span", { class: "quick-setup__badge" }, "빠른 설정"),
+        h("span", { class: "quick-setup__title" }, "기본 도메인 URL")
       ),
       h(
         "p",
-        { style: { fontSize: "12px", color: "#656d76", margin: "0 0 8px 0" } },
-        `shared-workflows/rest-api-docs/service-config.json 에 "${targetRepo.name}" 항목으로 저장됩니다. 환경명·URL 자유롭게 추가/삭제 가능.`
+        { class: "quick-setup__desc" },
+        "환경별 Base URL 만 등록합니다. 비워두고 적용한 뒤 ",
+        h(
+          "a",
+          { href: `#/domains/${targetRepo.name}`, class: "quick-setup__link" },
+          "도메인 관리"
+        ),
+        " 에서 채워도 됩니다."
       ),
       envForm.container,
-      h("div", { style: { marginTop: "6px" } }, envForm.addBtn)
+      h("div", { style: { marginTop: "6px" } }, envForm.addBtn),
+      h(
+        "div",
+        { class: "quick-setup__advanced" },
+        "ℹ 게이트웨이 라우팅 / 패키지별 다중 도메인 등 고급 설정은 적용 후 ",
+        h(
+          "a",
+          { href: `#/domains/${targetRepo.name}`, class: "quick-setup__link" },
+          "도메인 관리 →"
+        ),
+        " 에서 진행하세요."
+      )
     );
 
     // 기존 값이 있으면 미리 채워넣기

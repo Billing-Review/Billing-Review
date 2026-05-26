@@ -1,5 +1,6 @@
-import { listOrgRepos, listWorkflowFiles } from "./repos.js";
+import { listOrgRepos, listWorkflowFiles, setRuntimeWhitelist } from "./repos.js";
 import { pLimitMap } from "./github.js";
+import { readRepoList } from "./repo-list.js";
 import { FEATURES } from "../config.js";
 import { getState, setState } from "../state.js";
 
@@ -21,10 +22,19 @@ export function computeStatus(workflowFiles) {
 
 // 전체 매트릭스 로딩 (캐시 사용)
 //   force=true 면 캐시 무시하고 새로 조회
+//
+// 호출 시 항상 docs/repo-list.json 을 읽어 런타임 whitelist 갱신 → 어떤 뷰에서
+// 부르든 동일한 repo-list 기준의 결과가 보장된다.
 export async function loadMatrix(force = false) {
   const cache = getState().matrixCache;
   if (!force && cache && Date.now() - cache.ts < CACHE_TTL_MS) {
     return cache.rows;
+  }
+  try {
+    const r = await readRepoList();
+    setRuntimeWhitelist(r.list);
+  } catch {
+    // 실패 시 whitelist 미설정 상태 유지 (기존 동작)
   }
   const repos = await listOrgRepos();
   const wfSets = await pLimitMap(repos, 6, (r) =>

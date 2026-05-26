@@ -6,6 +6,7 @@ import {
   deleteServiceEntry,
   parseGatewayYml,
 } from "../api/service-config.js";
+import { readRepoList } from "../api/repo-list.js";
 import { buildEnvForm } from "../utils/env-form.js";
 
 export async function renderDomains(root, selected /* optional serviceName */) {
@@ -23,6 +24,7 @@ export async function renderDomains(root, selected /* optional serviceName */) {
   );
 
   let json = {};
+  let repoList = null;             // null 이면 repo-list 미설정 (전체 표시)
   let selectedName = selected || null;
 
   async function load() {
@@ -32,8 +34,9 @@ export async function renderDomains(root, selected /* optional serviceName */) {
         h("span", { class: "spinner" }), " 로딩 중...")
     );
     try {
-      const r = await readServiceConfig();
+      const [r, rl] = await Promise.all([readServiceConfig(), readRepoList()]);
       json = r.json || {};
+      repoList = rl.list;  // array | null
       renderSidebar();
       renderDetail();
     } catch (err) {
@@ -42,8 +45,18 @@ export async function renderDomains(root, selected /* optional serviceName */) {
     }
   }
 
+  // 사이드바에 표시할 서비스 목록 = repo-list (있으면) 우선
+  // 미등록 레포도 노출 (badge: '미등록') → 클릭해서 새로 설정 가능
   function listServices() {
-    return Object.keys(json).filter((k) => !k.startsWith("_")).sort();
+    const configured = Object.keys(json).filter((k) => !k.startsWith("_"));
+    if (repoList && repoList.length) {
+      const set = new Set(repoList);
+      // repo-list 순서 유지 + (안전망) configured 중 repo-list 에 없는 것은 뒤에 표시
+      const inList = repoList.slice().sort();
+      const extra = configured.filter((n) => !set.has(n)).sort();
+      return [...inList, ...extra];
+    }
+    return configured.sort();
   }
 
   function renderSidebar() {
@@ -54,8 +67,13 @@ export async function renderDomains(root, selected /* optional serviceName */) {
       return;
     }
     for (const name of services) {
-      const entry = json[name] || {};
-      const useGateway = !!entry.useGateway;
+      const entry = json[name];
+      const isConfigured = !!entry;
+      const useGateway = !!(entry && entry.useGateway);
+      let badgeText, badgeCls;
+      if (!isConfigured) { badgeText = "미등록"; badgeCls = "empty"; }
+      else if (useGateway) { badgeText = "GW"; badgeCls = "partial"; }
+      else { badgeText = "direct"; badgeCls = "full"; }
       const item = h(
         "a",
         {
@@ -63,11 +81,7 @@ export async function renderDomains(root, selected /* optional serviceName */) {
           href: `#/domains/${name}`,
         },
         h("span", { class: "name" }, name),
-        h(
-          "span",
-          { class: `badge ${useGateway ? "partial" : "full"}` },
-          useGateway ? "GW" : "direct"
-        )
+        h("span", { class: `badge ${badgeCls}` }, badgeText)
       );
       listEl.appendChild(item);
     }

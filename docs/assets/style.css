@@ -226,6 +226,76 @@ body {
 }
 .missing-list a:hover { background: #ddf4ff; color: var(--primary); }
 
+/* ── Callout (alerts, info boxes) ─────────────────── */
+.callout {
+  border-left: 4px solid var(--primary);
+  background: #ddf4ff;
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin: 12px 0;
+  font-size: 13px;
+  color: var(--text);
+}
+.callout--warning {
+  border-left-color: var(--warning);
+  background: #fff8c5;
+}
+.callout--danger {
+  border-left-color: var(--danger);
+  background: #ffebe9;
+}
+.callout a { color: var(--primary); text-decoration: none; font-weight: 500; }
+.callout a:hover { text-decoration: underline; }
+
+/* ── Apply modal: 빠른 설정 박스 (도메인 관리와 시각적 차별) ── */
+.quick-setup {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #f6f8fa 0%, #ffffff 100%);
+}
+.quick-setup__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.quick-setup__badge {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--primary);
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 10px;
+  letter-spacing: 0.05em;
+}
+.quick-setup__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.quick-setup__desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 10px 0;
+  line-height: 1.5;
+}
+.quick-setup__link {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+.quick-setup__link:hover { text-decoration: underline; }
+.quick-setup__advanced {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 /* ── Apply modal env form ─────────────────────────── */
 .env-form {
   margin-top: 8px;

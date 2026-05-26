@@ -155,12 +155,16 @@ export async function renderDeploy(root, featureId /* optional */) {
 
   applyBtn.addEventListener("click", async () => {
     if (selectedRepos.size === 0 || running) return;
-    const extraNote = feature.extraSetup === "service-config"
-      ? "\n\n⚠ service-config 등록(환경 URL)은 일괄 적용에서 처리되지 않습니다.\n각 레포의 [레포 관리] → [재적용] 으로 환경 URL을 별도 등록하세요."
-      : "";
+    if (feature.extraSetup) {
+      alert(
+        `"${feature.label}" 은(는) 추가 설정(도메인 등)이 필요해 일괄 적용으로 처리할 수 없습니다.\n\n` +
+        `[레포 관리] 에서 각 레포의 [적용] 또는 [재적용] 버튼을 사용하세요.`
+      );
+      return;
+    }
     if (
       !confirm(
-        `${selectedRepos.size}개 레포에 "${feature.label}"을(를) 적용합니다.${extraNote}\n\n계속하시겠습니까?`
+        `${selectedRepos.size}개 레포에 "${feature.label}"을(를) 적용합니다.\n\n계속하시겠습니까?`
       )
     )
       return;
@@ -234,6 +238,17 @@ export async function renderDeploy(root, featureId /* optional */) {
         h("strong", null, feature.label),
         " 을(를) 여러 레포에 한 번에 적용합니다. 이미 적용된 레포는 비활성화됩니다."
       ),
+      feature.extraSetup
+        ? h(
+            "div",
+            { class: "callout callout--warning" },
+            "⚠ 이 기능은 추가 설정(도메인 등)이 필요해 ",
+            h("strong", null, "일괄 적용 불가"),
+            "합니다. ",
+            h("a", { href: "#/repos" }, "[레포 관리]"),
+            " 에서 각 레포에 개별 적용하세요."
+          )
+        : null,
       h(
         "div",
         { style: { display: "flex", gap: "8px", marginBottom: "12px" } },
