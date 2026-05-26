@@ -7,7 +7,12 @@ import {
   parseGatewayYml,
 } from "../api/service-config.js";
 import { readRepoList } from "../api/repo-list.js";
+import { loadMatrix } from "../api/applied.js";
+import { applyFeatureToRepo } from "./apply-modal.js";
+import { FEATURES } from "../config.js";
 import { buildEnvForm } from "../utils/env-form.js";
+
+const REST_API_DOCS_FEATURE_ID = "rest-api-docs";
 
 export async function renderDomains(root, selected /* optional serviceName */) {
   const listEl = h("div", { class: "sidebar__list" });
@@ -25,24 +30,44 @@ export async function renderDomains(root, selected /* optional serviceName */) {
 
   let json = {};
   let repoList = null;             // null 이면 repo-list 미설정 (전체 표시)
+  let matrixByName = {};           // { repoName: { status, repo } }
   let selectedName = selected || null;
 
-  async function load() {
+  async function load(force = false) {
     clear(listEl);
     listEl.appendChild(
       h("div", { class: "empty", style: { padding: "16px" } },
         h("span", { class: "spinner" }), " 로딩 중...")
     );
     try {
-      const [r, rl] = await Promise.all([readServiceConfig(), readRepoList()]);
+      const [r, rl, matrix] = await Promise.all([
+        readServiceConfig(),
+        readRepoList(),
+        loadMatrix(force).catch(() => []),
+      ]);
       json = r.json || {};
-      repoList = rl.list;  // array | null
+      repoList = rl.list;
+      matrixByName = {};
+      for (const row of matrix || []) {
+        if (row && row.repo) matrixByName[row.repo.name] = row;
+      }
       renderSidebar();
       renderDetail();
     } catch (err) {
       clear(listEl);
       listEl.appendChild(h("div", { class: "empty" }, `오류: ${err.message}`));
     }
+  }
+
+  // 서비스별 상태 분류
+  function classify(name) {
+    const entry = json[name];
+    const row = matrixByName[name];
+    const restApiApplied = !!(row && row.status && row.status[REST_API_DOCS_FEATURE_ID] === "applied");
+    const hasDomain =
+      !!(entry && entry.environments && Object.keys(entry.environments).length) ||
+      !!(entry && entry.groups && entry.groups.length);
+    return { entry, row, restApiApplied, hasDomain };
   }
 
   // 사이드바에 표시할 서비스 목록 = repo-list (있으면) 우선
@@ -67,13 +92,25 @@ export async function renderDomains(root, selected /* optional serviceName */) {
       return;
     }
     for (const name of services) {
-      const entry = json[name];
-      const isConfigured = !!entry;
-      const useGateway = !!(entry && entry.useGateway);
-      let badgeText, badgeCls;
-      if (!isConfigured) { badgeText = "미등록"; badgeCls = "empty"; }
-      else if (useGateway) { badgeText = "GW"; badgeCls = "partial"; }
-      else { badgeText = "direct"; badgeCls = "full"; }
+      const { restApiApplied, hasDomain, entry } = classify(name);
+      let badgeText, badgeCls, badgeTitle;
+      if (!restApiApplied) {
+        badgeText = "기능 미적용";
+        badgeCls = "empty";
+        badgeTitle = "rest-api-docs 워크플로우가 아직 적용되지 않음. 저장하면 자동 적용됩니다.";
+      } else if (!hasDomain) {
+        badgeText = "도메인 ✗";
+        badgeCls = "partial";
+        badgeTitle = "rest-api-docs 적용됨. 도메인 설정 필요.";
+      } else if (entry && entry.useGateway) {
+        badgeText = "GW";
+        badgeCls = "full";
+        badgeTitle = "게이트웨이 사용 + 도메인 등록 완료";
+      } else {
+        badgeText = "direct";
+        badgeCls = "full";
+        badgeTitle = "직접 노출 + 도메인 등록 완료";
+      }
       const item = h(
         "a",
         {
@@ -81,7 +118,7 @@ export async function renderDomains(root, selected /* optional serviceName */) {
           href: `#/domains/${name}`,
         },
         h("span", { class: "name" }, name),
-        h("span", { class: `badge ${badgeCls}` }, badgeText)
+        h("span", { class: `badge ${badgeCls}`, title: badgeTitle }, badgeText)
       );
       listEl.appendChild(item);
     }
@@ -332,19 +369,44 @@ export async function renderDomains(root, selected /* optional serviceName */) {
       if (entry.groups && entry.groups.length) {
         newEntry.groups = entry.groups;
       }
-      // 변경 감지 — 동일하면 commit 안 함
+
+      // 현재 rest-api-docs 적용 상태 / 변경 여부
+      const cls = classify(name);
       const prevJson = JSON.stringify(json[name] || {});
       const nextJson = JSON.stringify(newEntry);
-      if (prevJson === nextJson) {
+      const configChanged = prevJson !== nextJson;
+      const willApplyFeature = !cls.restApiApplied;
+
+      if (!configChanged && !willApplyFeature) {
         toast("변경사항 없음", "info");
         return;
       }
+
       saveBtn.disabled = true;
       saveBtn.textContent = "저장 중...";
       try {
-        await setServiceEntry(name, newEntry);
-        json[name] = newEntry;
-        toast(`${name} 저장 완료`, "success");
+        if (configChanged) {
+          await setServiceEntry(name, newEntry);
+          json[name] = newEntry;
+        }
+        // rest-api-docs 미적용이면 자동 적용 (도메인 등록 = 사용 의지 = 활성화)
+        if (willApplyFeature) {
+          const feature = FEATURES.find((f) => f.id === REST_API_DOCS_FEATURE_ID);
+          const repo = cls.row && cls.row.repo;
+          if (feature && repo) {
+            saveBtn.textContent = "워크플로우 적용 중...";
+            await applyFeatureToRepo(feature, repo);
+            toast(`${name} 에 REST API Docs 활성화 완료`, "success");
+          } else {
+            toast(
+              `service-config 저장은 됐지만 ${name} 레포 정보를 찾지 못해 워크플로우 자동 적용을 건너뛰었습니다. [레포 관리] 에서 확인하세요.`,
+              "error", 6000
+            );
+          }
+        }
+        if (configChanged) toast(`${name} 저장 완료`, "success");
+        // 매트릭스 무효화 후 재로드 → 뱃지 갱신
+        await load(true);
       } catch (err) {
         toast(`저장 실패: ${err.message}`, "error", 5000);
       } finally {
@@ -352,6 +414,19 @@ export async function renderDomains(root, selected /* optional serviceName */) {
         saveBtn.textContent = "저장";
       }
     } }, "저장");
+
+    // rest-api-docs 미적용 안내 callout (저장 시 자동 활성화)
+    const featureNotAppliedNotice = !classify(name).restApiApplied
+      ? h(
+          "div",
+          { class: "callout callout--warning" },
+          "⚠ 이 레포에 ",
+          h("strong", null, "REST API Docs 워크플로우가 아직 적용되지 않았습니다"),
+          ". 저장 버튼을 누르면 ",
+          h("strong", null, "도메인 저장 + 워크플로우 자동 적용"),
+          " 이 함께 수행됩니다."
+        )
+      : null;
 
     const deleteBtn = h("button", {
       class: "btn btn--danger",
@@ -384,6 +459,7 @@ export async function renderDomains(root, selected /* optional serviceName */) {
           useGatewayCheck, " useGateway (게이트웨이 통해 노출)"
         )
       ),
+      featureNotAppliedNotice,
       h("div", { class: "section-title" }, "환경별 Base URL"),
       (() => {
         const desc = h("p", { class: "card__desc" });
