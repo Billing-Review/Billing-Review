@@ -301,15 +301,29 @@ export async function renderDomains(root, selected /* optional serviceName */) {
       renderGroups();
     }
 
-    useGatewayCheck.addEventListener("change", () => renderGroups());
+    // useGateway 모드 전환 시 기존 groups 는 데이터 형태가 호환 안 되므로 비움.
+    // (useGateway=true 의 internal/external prefix 와 false 의 packagePrefix/env 는
+    //  서로 다른 스키마)
+    useGatewayCheck.addEventListener("change", () => {
+      entry.groups = [];
+      renderGroups();
+    });
 
     const saveBtn = h("button", { class: "btn", onclick: async () => {
       const newEntry = {
         useGateway: useGatewayCheck.checked,
         environments: envForm.getValues(),
       };
-      if (useGatewayCheck.checked && entry.groups) {
+      // groups 는 useGateway 와 무관하게 항상 보존 (모드 전환 시 비워지므로 충돌 없음)
+      if (entry.groups && entry.groups.length) {
         newEntry.groups = entry.groups;
+      }
+      // 변경 감지 — 동일하면 commit 안 함
+      const prevJson = JSON.stringify(json[name] || {});
+      const nextJson = JSON.stringify(newEntry);
+      if (prevJson === nextJson) {
+        toast("변경사항 없음", "info");
+        return;
       }
       saveBtn.disabled = true;
       saveBtn.textContent = "저장 중...";
