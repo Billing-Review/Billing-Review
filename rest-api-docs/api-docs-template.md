@@ -25,17 +25,19 @@
 
 | 항목 | 값 |
 | --- | --- |
-| Path | (예: `/external/api/todo-list/{id}`) |
+| Path | 외부 호출 path. 게이트웨이 변환 안내가 있으면 외부 path, 없으면 컨트롤러 path |
 | Method | (예: `POST` / `GET` / `DELETE` / `PUT` / `PATCH`) |
 | Content-Type | `application/json` |
 
-**Domain** (service-config.json 에 정의된 환경만 행으로 추가)
+**Domain** (시스템이 알려준 환경 URL 만 행으로 추가. 없으면 URL 셀 빈 채로 두기)
 
 | 환경 | URL |
 | --- | --- |
-| 알파 | (service-config.json 의 Alpha 환경 URL) |
-| 베타 | (해당 시. service-config 에 없으면 행 생략) |
-| 리얼 | (service-config.json 의 Real 환경 URL) |
+| 알파 | (Alpha 환경 URL — 없으면 빈 채로) |
+| 베타 | (Beta 환경 URL — 해당 시) |
+| 리얼 | (Real 환경 URL — 없으면 빈 채로) |
+
+> 시스템이 환경 URL 을 못 받은 경우 (service-config / registry 모두 미설정) URL 셀을 비워두세요. 검토자가 직접 채워 publish 하면 다음 Draft 부터 자동으로 채워집니다.
 
 ## Request
 
