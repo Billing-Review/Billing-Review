@@ -5,6 +5,7 @@ import {
   setServiceEntry,
   deleteServiceEntry,
   parseGatewayYml,
+  invalidateServiceConfigCache,
 } from "../api/service-config.js";
 import { readRepoList } from "../api/repo-list.js";
 import { loadMatrix } from "../api/applied.js";
@@ -24,7 +25,14 @@ export async function renderDomains(root, selected /* optional serviceName */) {
   );
   const refreshBtn = h(
     "button",
-    { class: "btn btn--small", title: "새로고침", onclick: () => load() },
+    {
+      class: "btn btn--small",
+      title: "새로고침 (캐시 비우고 다시 로드)",
+      onclick: () => {
+        invalidateServiceConfigCache();
+        load(true);
+      },
+    },
     "↻"
   );
 

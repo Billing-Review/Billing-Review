@@ -1,6 +1,6 @@
 import { listOrgRepos, listWorkflowFiles, setRuntimeWhitelist } from "./repos.js";
 import { pLimitMap } from "./github.js";
-import { readRepoList } from "./repo-list.js";
+import { readRepoList, invalidateRepoListCache } from "./repo-list.js";
 import { FEATURES } from "../config.js";
 import { getState, setState } from "../state.js";
 
@@ -30,6 +30,8 @@ export async function loadMatrix(force = false) {
   if (!force && cache && Date.now() - cache.ts < CACHE_TTL_MS) {
     return cache.rows;
   }
+  // force=true 일 때는 repo-list 캐시도 같이 비워서 진짜 fresh 한 결과를 보장
+  if (force) invalidateRepoListCache();
   try {
     const r = await readRepoList();
     setRuntimeWhitelist(r.list);

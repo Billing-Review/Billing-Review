@@ -4,16 +4,45 @@ import { decodeB64, encodeB64 } from "../utils/b64.js";
 
 const PATH = "rest-api-docs/service-config.json";
 
+// 인메모리 TTL 캐시. 동시 호출 dedupe + 쓰기 즉시 갱신.
+const TTL_MS = 30_000;
+let _cache = null;       // { content, sha, json, ts }
+let _inflight = null;
+
+export function invalidateServiceConfigCache() {
+  _cache = null;
+  _inflight = null;
+}
+
 // 전체 service-config 객체를 읽어 { content, sha, json } 반환
 export async function readServiceConfig() {
-  const data = await getFileContent(ORG, SHARED_WORKFLOWS_REPO, PATH);
-  if (!data || !data.content) {
-    return { content: "{}", sha: null, json: {} };
+  if (_cache && Date.now() - _cache.ts < TTL_MS) {
+    return { content: _cache.content, sha: _cache.sha, json: _cache.json };
   }
-  const content = decodeB64(data.content);
-  let json = {};
-  try { json = JSON.parse(content); } catch {}
-  return { content, sha: data.sha, json };
+  if (_inflight) return _inflight;
+
+  _inflight = (async () => {
+    try {
+      const data = await getFileContent(ORG, SHARED_WORKFLOWS_REPO, PATH);
+      if (!data || !data.content) {
+        _cache = { content: "{}", sha: null, json: {}, ts: Date.now() };
+        return { content: "{}", sha: null, json: {} };
+      }
+      const content = decodeB64(data.content);
+      let json = {};
+      try { json = JSON.parse(content); } catch {}
+      _cache = { content, sha: data.sha, json, ts: Date.now() };
+      return { content, sha: data.sha, json };
+    } finally {
+      _inflight = null;
+    }
+  })();
+  return _inflight;
+}
+
+function refreshCacheFromJson(json, sha) {
+  const content = JSON.stringify(json, null, 2) + "\n";
+  _cache = { content, sha: sha || _cache?.sha || null, json, ts: Date.now() };
 }
 
 // 특정 서비스 entry 반환 (없으면 null)
@@ -32,6 +61,7 @@ export async function upsertServiceEntry(serviceName, environments) {
     message: `chore: register service-config for ${serviceName}`,
     sha: sha || undefined,
   });
+  refreshCacheFromJson(json);
 }
 
 // 서비스 entry 전체를 통째로 저장 (useGateway, environments, groups 등 모두)
@@ -44,6 +74,7 @@ export async function setServiceEntry(serviceName, entry) {
     message: `chore: update service-config for ${serviceName}`,
     sha: sha || undefined,
   });
+  refreshCacheFromJson(json);
 }
 
 // 서비스 entry 삭제
@@ -57,6 +88,7 @@ export async function deleteServiceEntry(serviceName) {
     message: `chore: remove service-config for ${serviceName}`,
     sha: sha || undefined,
   });
+  refreshCacheFromJson(json);
 }
 
 // Spring Cloud Gateway 라우트 YML 한 블록을 파싱해 group 후보 dict 반환.
