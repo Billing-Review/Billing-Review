@@ -127,26 +127,47 @@ def get_package(filepath: str) -> str:
     return ""
 
 
-def find_group_for_controller(filepath: str, repo_config: dict) -> dict:
-    """컨트롤러의 패키지를 보고 매칭되는 group dict 를 반환.
+def find_group_for_controller(filepath: str, repo_config: dict,
+                               controller_path: str = "") -> dict:
+    """컨트롤러에 매칭되는 group dict 를 반환.
 
-    - useGateway=true 인 서비스만 group 매칭 시도
-    - 매칭 후보가 여럿이면 packagePrefix 가 가장 긴 것을 선택
-    - 매칭 실패 시 None
+    useGateway=true:
+        - group 의 internalUrlPrefix 와 컨트롤러 path 매칭
+        - 가장 긴 prefix 우선
+    useGateway=false:
+        - group 의 packagePrefix 와 컨트롤러 패키지 매칭
+        - 가장 긴 prefix 우선
+        - 다중 도메인 시 사용 (각 group 이 자체 environments 보유)
+    매칭 실패 시 None.
     """
-    if not repo_config.get("useGateway"):
-        return None
     groups = repo_config.get("groups") or []
     if not groups:
         return None
-    pkg = get_package(filepath)
-    if not pkg:
-        return None
-    matches = [g for g in groups if g.get("packagePrefix") and pkg.startswith(g["packagePrefix"])]
-    if not matches:
-        return None
-    matches.sort(key=lambda g: len(g.get("packagePrefix") or ""), reverse=True)
-    return matches[0]
+
+    if repo_config.get("useGateway"):
+        if not controller_path:
+            return None
+        matches = [
+            g for g in groups
+            if g.get("internalUrlPrefix")
+            and controller_path.startswith(g["internalUrlPrefix"])
+        ]
+        if not matches:
+            return None
+        matches.sort(key=lambda g: len(g.get("internalUrlPrefix") or ""), reverse=True)
+        return matches[0]
+    else:
+        pkg = get_package(filepath)
+        if not pkg:
+            return None
+        matches = [
+            g for g in groups
+            if g.get("packagePrefix") and pkg.startswith(g["packagePrefix"])
+        ]
+        if not matches:
+            return None
+        matches.sort(key=lambda g: len(g.get("packagePrefix") or ""), reverse=True)
+        return matches[0]
 
 
 def apply_gateway_transform(path: str, group: dict) -> str:
@@ -175,12 +196,15 @@ def apply_gateway_transform(path: str, group: dict) -> str:
 def resolve_environments(repo_config: dict, full_config: dict = None, group: dict = None) -> dict:
     """해당 컨트롤러용 환경별 Base URL dict 반환.
 
-    useGateway 여부와 무관하게 repo_config 의 'environments' 를 그대로 사용.
-    (게이트웨이 도메인도 service-config 의 해당 서비스 entry 에 직접 적는다.)
-    값이 없으면 빈 dict 반환 → 호출부에서 registry fallback 등 후속 처리.
+    우선순위:
+    1. group.environments (useGateway=false 의 다중 도메인 케이스 — 그룹별 자체 도메인)
+    2. repo_config.environments (게이트웨이 도메인 또는 단일 도메인)
+    3. {} → 호출부에서 registry fallback 처리
 
-    full_config / group 인자는 향후 확장을 위해 시그니처에 유지하되 현재는 미사용.
+    full_config 는 향후 확장 위한 placeholder.
     """
+    if group and group.get("environments"):
+        return group["environments"]
     return repo_config.get("environments") or {}
 
 

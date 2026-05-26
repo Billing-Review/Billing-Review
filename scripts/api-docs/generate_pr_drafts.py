@@ -441,7 +441,7 @@ def generate_doc(method: str, path: str, ctrl_file: str, full_diff: str,
     # 게이트웨이 group 매칭 → 환경 URL / 외부 URL 계산
     repo_cfg = service_config or {}
     full_cfg = full_service_config or {}
-    group = find_group_for_controller(ctrl_file, repo_cfg)
+    group = find_group_for_controller(ctrl_file, repo_cfg, controller_path=path)
     envs = resolve_environments(repo_cfg, full_cfg, group)
     env_source = "service-config" if envs else None
     # fallback: 이전 publish 본문에서 추출된 registry.domains 사용

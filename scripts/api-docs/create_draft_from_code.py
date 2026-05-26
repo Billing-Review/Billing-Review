@@ -310,7 +310,7 @@ def main():
     service_config = full_service_config.get(repo_short, {})
 
     # 게이트웨이 group 매칭 → 환경 URL / 외부 URL 계산
-    group = find_group_for_controller(ctrl_file, service_config)
+    group = find_group_for_controller(ctrl_file, service_config, controller_path=path)
     envs = resolve_environments(service_config, full_service_config, group)
     env_source = "service-config" if envs else None
     # fallback: 이전 publish 본문에서 추출된 registry.domains 사용

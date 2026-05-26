@@ -96,113 +96,185 @@ export async function renderDomains(root, selected /* optional serviceName */) {
 
     function renderGroups() {
       clear(groupsContainer);
-      if (!useGatewayCheck.checked) return;
+      const isGateway = useGatewayCheck.checked;
       const groups = entry.groups || [];
+
+      const sectionTitle = isGateway
+        ? "Routes (게이트웨이 라우팅)"
+        : "Groups (패키지별 다중 도메인)";
+      const helpText = isGateway
+        ? "게이트웨이 YML 의 각 route 를 등록합니다. 컨트롤러 path 의 internal prefix 가 매칭되면 external prefix 로 변환되어 문서에 노출됩니다."
+        : "한 레포가 여러 도메인을 직접 노출하는 경우(게이트웨이 미사용) 패키지별로 다른 환경 URL 을 지정합니다. 매칭 안 되는 컨트롤러는 위의 서비스 environments 를 사용합니다.";
+
       groupsContainer.appendChild(
         h("div", { class: "section-title", style: { marginTop: "16px" } },
-          "Groups (패키지별 라우팅)",
+          sectionTitle,
           h("button", {
             class: "btn btn--small",
             style: { marginLeft: "auto" },
             onclick: () => openGroupEditor(null),
-          }, "+ 그룹 추가")
+          }, isGateway ? "+ Route 추가" : "+ 그룹 추가")
         )
       );
+      groupsContainer.appendChild(
+        h("p", { class: "card__desc", style: { fontSize: "12px" } }, helpText)
+      );
+
       if (!groups.length) {
         groupsContainer.appendChild(
           h("div", { class: "empty", style: { padding: "16px" } },
-            "그룹 없음. + 그룹 추가 를 누르세요. YML 붙여넣기로 한 번에 채울 수도 있어요.")
+            isGateway
+              ? "Route 없음. + Route 추가 를 누르세요. YML 붙여넣기로 한 번에 채울 수도 있어요."
+              : "그룹 없음. + 그룹 추가 를 누르세요."
+          )
         );
         return;
       }
-      const tbl = h("table", { class: "matrix-table" },
-        h("thead", null,
-          h("tr", null,
+
+      const headerRow = isGateway
+        ? h("tr", null,
             h("th", null, "이름"),
-            h("th", null, "패키지 prefix"),
             h("th", null, "internal"),
             h("th", null, "external"),
             h("th", { style: { width: "100px" } }, "")
           )
-        ),
-        h("tbody", null,
-          ...groups.map((g, idx) =>
-            h("tr", null,
-              h("td", null, g.name || ""),
-              h("td", null, h("code", null, g.packagePrefix || "")),
-              h("td", null, h("code", null, g.internalUrlPrefix || "")),
-              h("td", null, h("code", null, g.externalUrlPrefix || "")),
-              h("td", null,
-                h("button", { class: "btn btn--small", onclick: () => openGroupEditor(idx) }, "수정"),
-                " ",
-                h("button", {
-                  class: "btn btn--small btn--danger",
-                  onclick: () => removeGroup(idx),
-                }, "×")
-              )
+        : h("tr", null,
+            h("th", null, "이름"),
+            h("th", null, "패키지 prefix"),
+            h("th", null, "환경 URL"),
+            h("th", { style: { width: "100px" } }, "")
+          );
+
+      const renderRow = (g, idx) => isGateway
+        ? h("tr", null,
+            h("td", null, g.name || ""),
+            h("td", null, h("code", null, g.internalUrlPrefix || "")),
+            h("td", null, h("code", null, g.externalUrlPrefix || "")),
+            h("td", null,
+              h("button", { class: "btn btn--small", onclick: () => openGroupEditor(idx) }, "수정"),
+              " ",
+              h("button", { class: "btn btn--small btn--danger", onclick: () => removeGroup(idx) }, "×")
             )
           )
-        )
+        : h("tr", null,
+            h("td", null, g.name || ""),
+            h("td", null, h("code", null, g.packagePrefix || "")),
+            h("td", null,
+              g.environments
+                ? Object.entries(g.environments)
+                    .map(([k, v]) => `${k}: ${v}`).join(" / ")
+                : h("span", { style: { color: "var(--text-muted)" } }, "(service 기본값 사용)")
+            ),
+            h("td", null,
+              h("button", { class: "btn btn--small", onclick: () => openGroupEditor(idx) }, "수정"),
+              " ",
+              h("button", { class: "btn btn--small btn--danger", onclick: () => removeGroup(idx) }, "×")
+            )
+          );
+
+      const tbl = h("table", { class: "matrix-table" },
+        h("thead", null, headerRow),
+        h("tbody", null, ...groups.map(renderRow))
       );
       groupsContainer.appendChild(tbl);
     }
 
     function openGroupEditor(editIdx) {
+      const isGateway = useGatewayCheck.checked;
       const existing = editIdx == null ? {} : (entry.groups || [])[editIdx] || {};
-      const ymlInput = h("textarea", {
-        rows: 6,
-        placeholder: `붙여넣기 예:\n- id: pay-api\n  predicates:\n    - Path=/pay/**\n  filters:\n    - RewritePath=/pay/(?<segment>/?.*), /external/\${segment}`,
-        style: { width: "100%", fontFamily: "monospace", fontSize: "12px" },
-      });
       const nameIn = h("input", { type: "text", value: existing.name || "" });
-      const pkgIn = h("input", { type: "text", value: existing.packagePrefix || "", placeholder: "com.bill.payment" });
-      const intIn = h("input", { type: "text", value: existing.internalUrlPrefix || "", placeholder: "/external" });
-      const extIn = h("input", { type: "text", value: existing.externalUrlPrefix || "", placeholder: "/pay" });
-      const parseBtn = h("button", {
-        class: "btn btn--small",
-        onclick: () => {
-          const parsed = parseGatewayYml(ymlInput.value);
-          if (!parsed) {
-            toast("YML 에서 routing 정보를 찾지 못했습니다", "error");
-            return;
-          }
-          if (parsed.name && !nameIn.value) nameIn.value = parsed.name;
-          if (parsed.externalUrlPrefix) extIn.value = parsed.externalUrlPrefix;
-          if (parsed.internalUrlPrefix) intIn.value = parsed.internalUrlPrefix;
-          toast("YML 파싱 완료", "success");
-        },
-      }, "YML 파싱해서 채우기");
-      const okBtn = h("button", { class: "btn" }, editIdx == null ? "추가" : "저장");
       const cancelBtn = h("button", {
         class: "btn btn--ghost",
         style: { color: "#1f2328", border: "1px solid #d0d7de" },
       }, "취소");
+      const okBtn = h("button", { class: "btn" }, editIdx == null ? "추가" : "저장");
 
-      const backdrop = h("div", { class: "modal-backdrop" });
-      const modal = h("div", { class: "modal", onclick: (e) => e.stopPropagation() },
-        h("div", { class: "modal__header" },
-          h("h3", { class: "modal__title" }, editIdx == null ? "그룹 추가" : "그룹 수정"),
-        ),
-        h("div", { class: "modal__body" },
+      // 모달 본문은 useGateway 에 따라 다름
+      let bodyEl, getValues;
+
+      if (isGateway) {
+        // ── useGateway=true: name + internal/external prefix + YML 파서 ──
+        const ymlInput = h("textarea", {
+          rows: 6,
+          placeholder: `붙여넣기 예:\n- id: pay-api\n  predicates:\n    - Path=/pay/**\n  filters:\n    - RewritePath=/pay/(?<segment>/?.*), /external/\${segment}`,
+          style: { width: "100%", fontFamily: "monospace", fontSize: "12px" },
+        });
+        const intIn = h("input", { type: "text", value: existing.internalUrlPrefix || "", placeholder: "/external" });
+        const extIn = h("input", { type: "text", value: existing.externalUrlPrefix || "", placeholder: "/pay" });
+        const parseBtn = h("button", {
+          class: "btn btn--small",
+          onclick: () => {
+            const parsed = parseGatewayYml(ymlInput.value);
+            if (!parsed) { toast("YML 에서 routing 정보를 찾지 못했습니다", "error"); return; }
+            if (parsed.name && !nameIn.value) nameIn.value = parsed.name;
+            if (parsed.externalUrlPrefix) extIn.value = parsed.externalUrlPrefix;
+            if (parsed.internalUrlPrefix) intIn.value = parsed.internalUrlPrefix;
+            toast("YML 파싱 완료", "success");
+          },
+        }, "YML 파싱해서 채우기");
+
+        bodyEl = h("div", { class: "modal__body" },
           h("div", { class: "field" },
-            h("label", null, "Gateway YML (선택 — 붙여넣고 파싱 버튼)"),
+            h("label", null, "Gateway YML (선택 — 붙여넣고 파싱)"),
             ymlInput,
             h("div", { style: { textAlign: "right", marginTop: "4px" } }, parseBtn)
           ),
           h("hr"),
+          h("div", { class: "field" }, h("label", null, "Route 이름"), nameIn),
+          h("div", { class: "field" }, h("label", null, "internal URL prefix (코드의 컨트롤러 path)"), intIn),
+          h("div", { class: "field" }, h("label", null, "external URL prefix (외부 호출 시 path)"), extIn),
+        );
+        getValues = () => {
+          if (!nameIn.value.trim() || !intIn.value.trim() || !extIn.value.trim()) {
+            toast("이름, internal, external 모두 필수", "error");
+            return null;
+          }
+          return {
+            name: nameIn.value.trim(),
+            internalUrlPrefix: intIn.value.trim(),
+            externalUrlPrefix: extIn.value.trim(),
+          };
+        };
+      } else {
+        // ── useGateway=false: name + packagePrefix + 자체 environments ──
+        const pkgIn = h("input", { type: "text", value: existing.packagePrefix || "", placeholder: "com.bill.payment" });
+        const groupEnvForm = buildEnvForm(existing.environments || {}, { serviceName: name });
+
+        bodyEl = h("div", { class: "modal__body" },
+          h("div", { class: "field" }, h("label", null, "그룹 이름"), nameIn),
+          h("div", { class: "field" }, h("label", null, "패키지 prefix"), pkgIn),
+          h("hr"),
           h("div", { class: "field" },
-            h("label", null, "그룹 이름"), nameIn
+            h("label", null, "이 그룹의 환경별 URL (비우면 서비스 기본 environments 사용)"),
+            groupEnvForm.container,
+            h("div", { style: { marginTop: "6px" } }, groupEnvForm.addBtn)
           ),
-          h("div", { class: "field" },
-            h("label", null, "패키지 prefix"), pkgIn
-          ),
-          h("div", { class: "field" },
-            h("label", null, "internal URL prefix (코드 path)"), intIn
-          ),
-          h("div", { class: "field" },
-            h("label", null, "external URL prefix (외부 호출 path)"), extIn
+        );
+        getValues = () => {
+          if (!nameIn.value.trim() || !pkgIn.value.trim()) {
+            toast("이름과 패키지 prefix 는 필수", "error");
+            return null;
+          }
+          const envs = groupEnvForm.getValues();
+          const g = {
+            name: nameIn.value.trim(),
+            packagePrefix: pkgIn.value.trim(),
+          };
+          if (Object.keys(envs).length) g.environments = envs;
+          return g;
+        };
+      }
+
+      const backdrop = h("div", { class: "modal-backdrop" });
+      const modal = h("div", { class: "modal", onclick: (e) => e.stopPropagation() },
+        h("div", { class: "modal__header" },
+          h("h3", { class: "modal__title" },
+            editIdx == null
+              ? (isGateway ? "Route 추가" : "그룹 추가")
+              : (isGateway ? "Route 수정" : "그룹 수정")
           ),
         ),
+        bodyEl,
         h("div", { class: "modal__actions" }, cancelBtn, okBtn)
       );
 
@@ -210,16 +282,8 @@ export async function renderDomains(root, selected /* optional serviceName */) {
       backdrop.addEventListener("click", (e) => { if (e.target === backdrop) backdrop.remove(); });
 
       okBtn.addEventListener("click", () => {
-        const newGroup = {
-          name: nameIn.value.trim(),
-          packagePrefix: pkgIn.value.trim(),
-          internalUrlPrefix: intIn.value.trim(),
-          externalUrlPrefix: extIn.value.trim(),
-        };
-        if (!newGroup.name || !newGroup.packagePrefix) {
-          toast("이름과 패키지 prefix 는 필수", "error");
-          return;
-        }
+        const newGroup = getValues();
+        if (!newGroup) return;
         entry.groups = entry.groups || [];
         if (editIdx == null) entry.groups.push(newGroup);
         else entry.groups[editIdx] = newGroup;
@@ -293,11 +357,17 @@ export async function renderDomains(root, selected /* optional serviceName */) {
         )
       ),
       h("div", { class: "section-title" }, "환경별 Base URL"),
-      h("p", { class: "card__desc" },
-        useGatewayCheck.checked
-          ? "게이트웨이 도메인을 입력하세요 (서비스 자체 도메인이 아니라 게이트웨이의 외부 도메인)."
-          : "이 서비스의 도메인을 환경별로 입력하세요."
-      ),
+      (() => {
+        const desc = h("p", { class: "card__desc" });
+        function updateDesc() {
+          desc.textContent = useGatewayCheck.checked
+            ? "게이트웨이 도메인을 입력하세요 (서비스 자체 도메인이 아니라 게이트웨이의 외부 도메인)."
+            : "이 서비스의 도메인을 환경별로 입력하세요. 패키지별로 도메인이 다르면 아래 Groups 에 자체 environments 를 설정하세요 (이 값은 매칭 안 되는 컨트롤러의 fallback).";
+        }
+        updateDesc();
+        useGatewayCheck.addEventListener("change", updateDesc);
+        return desc;
+      })(),
       envForm.container,
       h("div", { style: { marginTop: "8px" } }, envForm.addBtn),
       groupsContainer,
