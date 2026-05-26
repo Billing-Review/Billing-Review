@@ -71,7 +71,7 @@ export function openApplyModal(feature, targetRepo, onDone) {
         h(
           "a",
           { href: `#/domains/${targetRepo.name}`, class: "quick-setup__link" },
-          "도메인 관리 →"
+          "도메인 관리"
         ),
         " 에서 진행하세요."
       )
