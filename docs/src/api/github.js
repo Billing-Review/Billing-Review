@@ -20,14 +20,14 @@ export async function ghFetch(path, opts = {}) {
   const method = opts.method || "GET";
   // GitHub Contents API 는 max-age=60 의 Cache-Control 을 반환해 브라우저가
   // 디스크 캐시에서 응답을 돌려줄 수 있다. 쓰기 직후 읽기에서 stale 한 값을
-  // 보지 않도록 GET 은 항상 freshness 강제.
+  // 보지 않도록 GET 은 캐시버스터 쿼리 + fetch cache:'no-store' 사용.
+  // (Cache-Control / Pragma 요청 헤더는 GitHub CORS 가 허용 안 해 사용 불가)
   const cacheBuster = method === "GET" ? (path.includes("?") ? "&" : "?") + "_=" + Date.now() : "";
   const url = `${API_BASE_URL}${path}${cacheBuster}`;
   const headers = {
     "Accept": "application/vnd.github+json",
     "Authorization": `Bearer ${pat}`,
     "X-GitHub-Api-Version": "2022-11-28",
-    ...(method === "GET" ? { "Cache-Control": "no-cache", "Pragma": "no-cache" } : {}),
     ...(opts.headers || {}),
   };
   if (opts.body && !headers["Content-Type"]) {
