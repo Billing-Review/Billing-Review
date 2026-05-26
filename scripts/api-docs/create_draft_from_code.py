@@ -22,7 +22,8 @@ from lib.api_utils import (
     normalize_api_key, now_kst_display, now_kst_iso,
     read_registry, write_registry, set_output,
     registry_path_for, registry_rel_for,
-    read_service_config, build_env_url_section,
+    read_service_config, read_full_service_config, build_env_url_section,
+    find_group_for_controller, apply_gateway_transform, resolve_environments,
     extract_javadoc_and_params, parse_field_javadocs, format_doc_hints,
     check_javadoc_completeness, build_doc_header, REVIEW_CHECKLIST,
     strip_pre_h2, parse_enum_constants, build_diff_block,
@@ -305,11 +306,28 @@ def main():
     with open(TEMPLATE_FILE, "r") as f:
         template = f.read()
 
-    service_config = read_service_config(repo_short)
-    env_url_section = build_env_url_section(service_config)
+    full_service_config = read_full_service_config()
+    service_config = full_service_config.get(repo_short, {})
+
+    # 게이트웨이 group 매칭 → 환경 URL / 외부 URL 계산
+    group = find_group_for_controller(ctrl_file, service_config)
+    envs = resolve_environments(service_config, full_service_config, group)
+    external_path = apply_gateway_transform(path, group)
+    env_url_section = build_env_url_section(envs)
+
     env_url_hint = ""
     if env_url_section:
-        env_url_hint = f"\n{env_url_section}\n위 서버 URL을 문서의 '서버 URL' 섹션에 반드시 포함하세요.\n"
+        env_url_hint = (
+            f"\n{env_url_section}\n"
+            f"위 서버 URL을 문서의 '서버 URL' / 'Domain' 섹션에 반드시 포함하세요.\n"
+        )
+    if group and external_path != path:
+        env_url_hint += (
+            f"\n**[게이트웨이 경로 변환]** 이 API 는 게이트웨이를 통해 외부에 노출됩니다.\n"
+            f"- 컨트롤러 내부 path : `{path}`\n"
+            f"- 외부 호출 path     : `{external_path}`\n"
+            f"문서의 `API Info > Path` 와 모든 예시 URL 에는 **외부 path (`{external_path}`)** 를 사용하세요.\n"
+        )
 
     prompt = f"""{system_prompt}
 

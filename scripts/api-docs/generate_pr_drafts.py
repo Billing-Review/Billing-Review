@@ -28,11 +28,12 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 from lib.api_utils import (
     normalize_api_key, now_kst_display, now_kst_iso, today_kst,
-    read_service_config, build_env_url_section,
+    read_service_config, read_full_service_config, build_env_url_section,
     read_registry, write_registry, registry_path_for, registry_rel_for,
     extract_javadoc_and_params, parse_field_javadocs, format_doc_hints,
     check_javadoc_completeness, build_doc_header, REVIEW_CHECKLIST,
     strip_pre_h2, parse_enum_constants, build_diff_block,
+    find_group_for_controller, apply_gateway_transform, resolve_environments,
 )
 from lib.dooray import create_page, delete_page, get_page, update_page
 from lib.git_utils import git_commit_and_push
@@ -404,7 +405,8 @@ def infer_url_hint(path: str, code_content: str) -> str:
 def generate_doc(method: str, path: str, ctrl_file: str, full_diff: str,
                  pr_title: str, pr_body: str, existing_doc: str,
                  system_prompt: str, template: str,
-                 service_config=None, prev_doc: str = "") -> tuple:
+                 service_config=None, prev_doc: str = "",
+                 full_service_config=None) -> tuple:
     method_code = extract_method_for_api(ctrl_file, method, path)
     related = find_related_files([ctrl_file])
     code_content = f"### [Controller] {ctrl_file}\n```java\n{method_code}\n```"
@@ -436,10 +438,27 @@ def generate_doc(method: str, path: str, ctrl_file: str, full_diff: str,
     javadoc_doc_url = javadoc.get("doc_url", "")
     javadoc_title = javadoc.get("title", "")
 
-    env_url_section = build_env_url_section(service_config or {})
+    # 게이트웨이 group 매칭 → 환경 URL / 외부 URL 계산
+    repo_cfg = service_config or {}
+    full_cfg = full_service_config or {}
+    group = find_group_for_controller(ctrl_file, repo_cfg)
+    envs = resolve_environments(repo_cfg, full_cfg, group)
+    external_path = apply_gateway_transform(path, group)
+    env_url_section = build_env_url_section(envs)
+
     env_url_hint = ""
     if env_url_section:
-        env_url_hint = f"\n{env_url_section}\n위 서버 URL을 문서의 '서버 URL' 섹션에 반드시 포함하세요.\n"
+        env_url_hint = (
+            f"\n{env_url_section}\n"
+            f"위 서버 URL을 문서의 '서버 URL' / 'Domain' 섹션에 반드시 포함하세요.\n"
+        )
+    if group and external_path != path:
+        env_url_hint += (
+            f"\n**[게이트웨이 경로 변환]** 이 API 는 게이트웨이를 통해 외부에 노출됩니다.\n"
+            f"- 컨트롤러 내부 path : `{path}`\n"
+            f"- 외부 호출 path     : `{external_path}`\n"
+            f"문서의 `API Info > Path` 와 모든 예시 URL 에는 **외부 path (`{external_path}`)** 를 사용하세요.\n"
+        )
 
     ref_section = ""
     if prev_doc:
@@ -628,7 +647,8 @@ def main():
     reg_path = registry_path_for(repo_short)
     reg_rel = registry_rel_for(repo_short)
     registry = read_registry(reg_path)
-    service_config = read_service_config(repo_short)
+    full_service_config = read_full_service_config()
+    service_config = full_service_config.get(repo_short, {})
 
     draft_links = []
 
@@ -668,6 +688,7 @@ def main():
             system_prompt, template,
             service_config=service_config,
             prev_doc=prev_doc,
+            full_service_config=full_service_config,
         )
 
         # url_hint 우선순위: @docUrl > registry > 추론

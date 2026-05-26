@@ -96,7 +96,6 @@ def set_repo_page_id(registry: dict, url_hint: str, page_id: str):
 
 
 _SERVICE_CONFIG_PATH = os.path.join("shared-config", "rest-api-docs", "service-config.json")
-_GATEWAY_POOL_KEY = "_gateways"
 
 
 def read_full_service_config() -> dict:
@@ -173,24 +172,20 @@ def apply_gateway_transform(path: str, group: dict) -> str:
     return path
 
 
-def resolve_environments(repo_config: dict, full_config: dict, group: dict = None) -> dict:
-    """우선순위에 따라 해당 컨트롤러용 환경별 Base URL dict 반환.
+def resolve_environments(repo_config: dict, full_config: dict = None, group: dict = None) -> dict:
+    """해당 컨트롤러용 환경별 Base URL dict 반환.
 
-    1. useGateway + group 매칭 → _gateways[gatewayId] 의 환경 URL
-    2. repo_config.environments
-    3. 빈 dict (호출부에서 registry fallback 등 후속 처리)
+    useGateway 여부와 무관하게 repo_config 의 'environments' 를 그대로 사용.
+    (게이트웨이 도메인도 service-config 의 해당 서비스 entry 에 직접 적는다.)
+    값이 없으면 빈 dict 반환 → 호출부에서 registry fallback 등 후속 처리.
+
+    full_config / group 인자는 향후 확장을 위해 시그니처에 유지하되 현재는 미사용.
     """
-    if group and repo_config.get("useGateway"):
-        gateway_id = repo_config.get("gatewayId") or ""
-        gateways = (full_config.get(_GATEWAY_POOL_KEY) or {})
-        envs = gateways.get(gateway_id) or {}
-        if envs:
-            return envs
     return repo_config.get("environments") or {}
 
 
 def list_services(full_config: dict) -> list:
-    """서비스 키 목록만 (`_` 로 시작하는 메타 키 제외)."""
+    """서비스 키 목록만 (`_` 로 시작하는 메타 키 있을 경우 제외)."""
     return [k for k in full_config.keys() if not k.startswith("_")]
 
 
