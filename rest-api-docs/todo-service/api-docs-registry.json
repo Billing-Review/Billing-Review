@@ -51,5 +51,15 @@
     "updated_at": "2026-05-22T16:51:57+09:00",
     "deprecated_at": null,
     "page_id": "4338002818240677882"
+  },
+  "GET /api/reports/todos/daily": {
+    "status": "draft",
+    "draft_page_id": "4341502906046027187",
+    "title": "Todo 일일 리포트",
+    "url_hint": "external",
+    "created_at": "2026-05-27T12:11:17+09:00",
+    "updated_at": "2026-05-27T12:11:17+09:00",
+    "deprecated_at": null,
+    "page_id": null
   }
 }
