@@ -127,17 +127,42 @@ def get_package(filepath: str) -> str:
     return ""
 
 
+def _is_package_subpath(pkg: str, prefix: str) -> bool:
+    """패키지 segment 단위 prefix 매칭.
+
+    'com.example.review' 는 'com.example.review.controller' 의 prefix 지만
+    'com.example.review2' 의 prefix 는 아니다 (글자 prefix 와 차이).
+    """
+    if not pkg or not prefix:
+        return False
+    if pkg == prefix:
+        return True
+    return pkg.startswith(prefix + ".")
+
+
+def _is_path_subpath(path: str, prefix: str) -> bool:
+    """URL path segment 단위 prefix 매칭.
+
+    '/external' 은 '/external/api' 의 prefix 지만 '/external-admin' 은 아님.
+    """
+    if not path or not prefix:
+        return False
+    p = prefix.rstrip("/")
+    if path == p:
+        return True
+    return path.startswith(p + "/")
+
+
 def find_group_for_controller(filepath: str, repo_config: dict,
                                controller_path: str = "") -> dict:
     """컨트롤러에 매칭되는 group dict 를 반환.
 
     useGateway=true:
-        - group 의 internalUrlPrefix 와 컨트롤러 path 매칭
-        - 가장 긴 prefix 우선
+        - group 의 internalUrlPrefix 와 컨트롤러 path 의 segment 매칭
+        - 가장 깊은 (segment 수가 많은) prefix 우선
     useGateway=false:
-        - group 의 packagePrefix 와 컨트롤러 패키지 매칭
-        - 가장 긴 prefix 우선
-        - 다중 도메인 시 사용 (각 group 이 자체 environments 보유)
+        - group 의 packagePrefix 와 컨트롤러 패키지의 segment 매칭
+        - 가장 깊은 (`.` 개수가 많은) prefix 우선
     매칭 실패 시 None.
     """
     groups = repo_config.get("groups") or []
@@ -150,11 +175,15 @@ def find_group_for_controller(filepath: str, repo_config: dict,
         matches = [
             g for g in groups
             if g.get("internalUrlPrefix")
-            and controller_path.startswith(g["internalUrlPrefix"])
+            and _is_path_subpath(controller_path, g["internalUrlPrefix"])
         ]
         if not matches:
             return None
-        matches.sort(key=lambda g: len(g.get("internalUrlPrefix") or ""), reverse=True)
+        # depth = '/' 로 split 된 segment 수
+        matches.sort(
+            key=lambda g: len([s for s in (g.get("internalUrlPrefix") or "").split("/") if s]),
+            reverse=True,
+        )
         return matches[0]
     else:
         pkg = get_package(filepath)
@@ -162,11 +191,15 @@ def find_group_for_controller(filepath: str, repo_config: dict,
             return None
         matches = [
             g for g in groups
-            if g.get("packagePrefix") and pkg.startswith(g["packagePrefix"])
+            if g.get("packagePrefix") and _is_package_subpath(pkg, g["packagePrefix"])
         ]
         if not matches:
             return None
-        matches.sort(key=lambda g: len(g.get("packagePrefix") or ""), reverse=True)
+        # depth = '.' 으로 split 된 segment 수
+        matches.sort(
+            key=lambda g: len((g.get("packagePrefix") or "").split(".")),
+            reverse=True,
+        )
         return matches[0]
 
 
