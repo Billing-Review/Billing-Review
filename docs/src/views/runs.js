@@ -2,6 +2,8 @@ import { h, mount, clear } from "../utils/dom.js";
 import { listWorkflowRuns } from "../api/workflows.js";
 import { toast } from "../utils/toast.js";
 
+const PER_PAGE = 10;
+
 const STATUS_ICON = {
   completed: { success: "✓", failure: "✗", cancelled: "⊘", skipped: "↪" },
   in_progress: "●",
@@ -41,22 +43,73 @@ function relativeTime(iso) {
 
 export async function renderRuns(root, repoName) {
   const listEl = h("ul", { class: "api-list" });
+  let page = 1;
+  let hasNext = false;
+
+  const prevBtn = h(
+    "button",
+    { class: "btn btn--small", title: "이전 페이지" },
+    "<"
+  );
+  const nextBtn = h(
+    "button",
+    { class: "btn btn--small", title: "다음 페이지" },
+    ">"
+  );
+  const pageLabel = h(
+    "span",
+    { style: { fontSize: "12px", color: "var(--text-muted)", margin: "0 8px" } },
+    "1"
+  );
   const refreshBtn = h(
     "button",
-    { class: "btn btn--small", onclick: () => load() },
+    {
+      class: "btn btn--small",
+      onclick: () => { page = 1; load(); },
+    },
     "↻ 새로고침"
   );
 
+  prevBtn.addEventListener("click", () => {
+    if (page <= 1) return;
+    page -= 1;
+    load();
+  });
+  nextBtn.addEventListener("click", () => {
+    if (!hasNext) return;
+    page += 1;
+    load();
+  });
+
+  function updatePagerState(loading) {
+    pageLabel.textContent = String(page);
+    prevBtn.disabled = loading || page <= 1;
+    nextBtn.disabled = loading || !hasNext;
+  }
+
   async function load() {
+    updatePagerState(true);
     clear(listEl);
     listEl.appendChild(
       h("li", null, h("span", { class: "spinner" }), " 로딩 중...")
     );
     try {
-      const runs = await listWorkflowRuns(repoName, null, 20);
+      // 다음 페이지 유무 확인을 위해 PER_PAGE + 1 만큼 받는다.
+      // 응답 길이가 PER_PAGE 초과면 다음 페이지 있음.
+      const fetched = await listWorkflowRuns(repoName, null, PER_PAGE + 1, page);
+      const runs = fetched.slice(0, PER_PAGE);
+      hasNext = fetched.length > PER_PAGE;
+
       clear(listEl);
       if (!runs.length) {
-        listEl.appendChild(h("li", { class: "empty" }, "실행 기록 없음"));
+        listEl.appendChild(
+          h(
+            "li",
+            { class: "empty" },
+            page === 1 ? "실행 기록 없음" : "더 이상 표시할 항목이 없습니다."
+          )
+        );
+        updatePagerState(false);
         return;
       }
       for (const run of runs) {
@@ -96,6 +149,9 @@ export async function renderRuns(root, repoName) {
       clear(listEl);
       listEl.appendChild(h("li", { class: "empty" }, `오류: ${err.message}`));
       toast(`실행 목록 조회 실패: ${err.message}`, "error", 5000);
+      hasNext = false;
+    } finally {
+      updatePagerState(false);
     }
   }
 
@@ -109,9 +165,17 @@ export async function renderRuns(root, repoName) {
         "div",
         { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
         h("h2", { class: "card__title", style: { margin: 0 } }, `${repoName} — 워크플로우 실행 현황`),
-        refreshBtn
+        h(
+          "div",
+          { style: { display: "flex", alignItems: "center", gap: "4px" } },
+          prevBtn,
+          pageLabel,
+          nextBtn,
+          h("span", { style: { width: "12px" } }),
+          refreshBtn
+        )
       ),
-      h("p", { class: "card__desc" }, "최근 20건의 워크플로우 실행 결과입니다."),
+      h("p", { class: "card__desc" }, `한 페이지 ${PER_PAGE}건씩 표시합니다.`),
       listEl
     )
   );

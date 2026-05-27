@@ -16,11 +16,13 @@ export async function dispatchWorkflow(repo, workflowFile, ref, inputs) {
   );
 }
 
-// 최근 실행 목록
-export async function listWorkflowRuns(repo, workflowFile, perPage = 10) {
-  const path = workflowFile
-    ? `/repos/${ORG}/${repo}/actions/workflows/${encodeURIComponent(workflowFile)}/runs?per_page=${perPage}`
-    : `/repos/${ORG}/${repo}/actions/runs?per_page=${perPage}`;
+// 최근 실행 목록 (페이지 지원). 응답에 total_count 도 있지만 호출부에서
+// 다음 페이지 유무만 알면 충분하므로 runs 만 반환.
+export async function listWorkflowRuns(repo, workflowFile, perPage = 10, page = 1) {
+  const base = workflowFile
+    ? `/repos/${ORG}/${repo}/actions/workflows/${encodeURIComponent(workflowFile)}/runs`
+    : `/repos/${ORG}/${repo}/actions/runs`;
+  const path = `${base}?per_page=${perPage}&page=${page}`;
   const data = await ghFetch(path);
   return data && data.workflow_runs ? data.workflow_runs : [];
 }
