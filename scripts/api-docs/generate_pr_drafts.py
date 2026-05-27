@@ -652,6 +652,29 @@ def main():
     elif mode == "deprecated":
         changed = []
 
+    # ── Javadoc 사전 검증 (draft 생성 대상에 한해) ────────────────────────────
+    # 모든 변경 API 의 Javadoc 완성도를 먼저 일괄 검사해 한 번에 fail-fast.
+    # (Claude 호출 전에 빠르게 끝남 → 비용/시간 절약 + 사용자 피드백 한 번에)
+    if changed:
+        validation_failures = []
+        for api in changed:
+            doc_info = extract_javadoc_and_params(api["file"], api["method"], api["path"])
+            errors = check_javadoc_completeness(
+                doc_info.get("javadoc", {}), doc_info.get("method_params", {})
+            )
+            if errors:
+                validation_failures.append({"api": api, "errors": errors})
+
+        if validation_failures:
+            for f in validation_failures:
+                api = f["api"]
+                api_key = normalize_api_key(api["method"], api["path"])
+                print(f"[ERROR] {api_key} ({api['file']}) — Javadoc 불완전:", file=sys.stderr)
+                for e in f["errors"]:
+                    print(f"  • {e}", file=sys.stderr)
+            print("작성 방법: rest-api-docs/javadoc-guide.md 참조", file=sys.stderr)
+            sys.exit(1)
+
     pr_title, pr_body, _ = get_pr_metadata(pr_number, repo_name)
 
     with open(SYSTEM_PROMPT_FILE, "r") as f:
