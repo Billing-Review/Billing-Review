@@ -11,5 +11,15 @@
   },
   "__repo_page_id__": {
     "external": "4337079074836410684"
+  },
+  "POST /internal/payments": {
+    "status": "draft",
+    "draft_page_id": "4341500908707049702",
+    "title": "결제 처리",
+    "url_hint": "external",
+    "created_at": "2026-05-27T12:07:19+09:00",
+    "updated_at": "2026-05-27T12:07:19+09:00",
+    "deprecated_at": null,
+    "page_id": null
   }
 }
