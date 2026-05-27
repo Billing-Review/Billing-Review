@@ -1,15 +1,42 @@
 {
   "todo-service": {
+    "useGateway": false,
     "environments": {
       "Alpha": "https://alpha-todo.example.com",
       "Real": "https://todo.example.com"
-    }
+    },
+    "groups": [
+      {
+        "name": "main",
+        "packagePrefix": "com.example.review.controller",
+        "environments": {
+          "Alpha": "https://alpha-todo.example.com",
+          "Real": "https://todo.example.com"
+        }
+      },
+      {
+        "name": "report",
+        "packagePrefix": "com.example.review.report.controller",
+        "environments": {
+          "Alpha": "https://alpha-report.example.com",
+          "Real": "https://report.example.com"
+        }
+      }
+    ]
   },
   "payment-service": {
+    "useGateway": true,
     "environments": {
-      "Alpha": "https://alpha-payment.example.com",
-      "Beta": "https://beta-payment.example.com",
-      "Real": "https://payment.example.com"
-    }
+      "Alpha": "https://alpha-gateway.example.com",
+      "Beta": "https://beta-gateway.example.com",
+      "Real": "https://gateway.example.com"
+    },
+    "groups": [
+      {
+        "name": "payment-api",
+        "internalUrlPrefix": "/internal",
+        "externalUrlPrefix": "/api"
+      }
+    ]
   }
 }
