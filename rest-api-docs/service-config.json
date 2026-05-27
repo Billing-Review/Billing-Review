@@ -28,7 +28,6 @@
     "useGateway": true,
     "environments": {
       "Alpha": "https://alpha-gateway.example.com",
-      "Beta": "https://beta-gateway.example.com",
       "Real": "https://gateway.example.com"
     },
     "groups": [
