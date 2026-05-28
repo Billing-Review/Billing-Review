@@ -857,51 +857,335 @@ def _drop_empty_hunks(diff_lines: list) -> list:
     return out
 
 
+# ── 구조화 diff (B + C: 섹션별 의미 비교 + word-level) ──────────────────────
+
+_HEADING_RE = re.compile(r"^(#{2,4})\s+(.+?)\s*$")
+_TABLE_ROW_RE = re.compile(r"^\s*\|.*\|\s*$")
+_TABLE_SEP_RE = re.compile(r"^\s*\|?\s*:?-{2,}.*$")
+_CODE_FENCE_RE = re.compile(r"^\s*```")
+
+
+def _split_sections(content: str) -> list:
+    """마크다운을 (heading_path, level, body_lines) 리스트로 분할.
+
+    heading_path 는 'H2 > H3' 형태. body_lines 는 해당 헤딩 직하 본문(다음 헤딩 전까지).
+    헤딩이 없는 선두 텍스트는 '(서두)' 라는 가상 경로로 묶는다.
+    """
+    sections = []
+    cur_path = []
+    cur_levels = []
+    cur_body = []
+    in_fence = False
+
+    def flush():
+        if not cur_path and not any(ln.strip() for ln in cur_body):
+            return
+        path_str = " > ".join(cur_path) if cur_path else "(서두)"
+        sections.append((path_str, cur_levels[-1] if cur_levels else 2, list(cur_body)))
+
+    for line in content.splitlines():
+        if _CODE_FENCE_RE.match(line):
+            in_fence = not in_fence
+            cur_body.append(line)
+            continue
+        if in_fence:
+            cur_body.append(line)
+            continue
+        m = _HEADING_RE.match(line)
+        if m:
+            flush()
+            level = len(m.group(1))
+            title = m.group(2).strip()
+            # 상위 레벨까지 잘라낸 뒤 자기 자신 push
+            while cur_levels and cur_levels[-1] >= level:
+                cur_levels.pop()
+                cur_path.pop()
+            cur_levels.append(level)
+            cur_path.append(title)
+            cur_body = []
+            continue
+        cur_body.append(line)
+    flush()
+    return sections
+
+
+def _parse_table(lines: list) -> tuple:
+    """body_lines 중 첫 마크다운 표를 (header_cells, rows[dict|None], start_idx, end_idx) 로 추출.
+
+    표가 없으면 (None, None, -1, -1). rows[i] 는 {col: cell} dict, 첫 컬럼을 key 로도 보존.
+    """
+    n = len(lines)
+    i = 0
+    while i < n:
+        if _TABLE_ROW_RE.match(lines[i]) and i + 1 < n and _TABLE_SEP_RE.match(lines[i + 1]):
+            # header
+            header = [c.strip() for c in lines[i].strip().strip("|").split("|")]
+            start = i
+            j = i + 2
+            rows = []
+            while j < n and _TABLE_ROW_RE.match(lines[j]):
+                cells = [c.strip() for c in lines[j].strip().strip("|").split("|")]
+                # 열 수 맞추기
+                while len(cells) < len(header):
+                    cells.append("")
+                rows.append(dict(zip(header, cells[:len(header)])))
+                j += 1
+            return header, rows, start, j
+        i += 1
+    return None, None, -1, -1
+
+
+def _normalize_cell(s: str) -> str:
+    """표 셀 정규화 — 백틱·강조·공백 차이를 동일하게 본다."""
+    if s is None:
+        return ""
+    s = re.sub(r"`+", "", s)
+    s = re.sub(r"\*+", "", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _row_key(header: list, row: dict) -> str:
+    """표 행의 식별 키 — 첫 컬럼(필드명/파라미터명 등) 값. 비어있으면 row signature."""
+    if header and header[0] in row and row[header[0]].strip():
+        return _normalize_cell(row[header[0]])
+    return "|".join(_normalize_cell(row.get(h, "")) for h in header)
+
+
+def _diff_table(prev_lines: list, new_lines: list) -> list:
+    """두 본문에서 첫 표를 추출해 행 단위 변경 목록 반환. 표가 없으면 빈 리스트."""
+    p_header, p_rows, _, _ = _parse_table(prev_lines)
+    n_header, n_rows, _, _ = _parse_table(new_lines)
+    if not p_header or not n_header:
+        return []
+
+    p_map = {_row_key(p_header, r): r for r in p_rows}
+    n_map = {_row_key(n_header, r): r for r in n_rows}
+    changes = []
+
+    # 추가
+    for key in n_map:
+        if key not in p_map:
+            row = n_map[key]
+            summary = ", ".join(f"{h}=`{row.get(h,'')}`" for h in n_header if row.get(h, "").strip())
+            changes.append(f"- ➕ **행 추가**: `{key}` — {summary}")
+    # 삭제
+    for key in p_map:
+        if key not in n_map:
+            changes.append(f"- ➖ **행 삭제**: `{key}`")
+    # 변경 — 같은 key 의 셀 비교
+    for key in n_map:
+        if key in p_map:
+            p_row = p_map[key]
+            n_row = n_map[key]
+            cell_changes = []
+            for col in n_header:
+                if col == n_header[0]:
+                    continue
+                pv = _normalize_cell(p_row.get(col, ""))
+                nv = _normalize_cell(n_row.get(col, ""))
+                if pv != nv:
+                    cell_changes.append(f"`{col}` `{pv or '∅'}` → `{nv or '∅'}`")
+            if cell_changes:
+                changes.append(f"- ✏️ **행 변경**: `{key}` — " + "; ".join(cell_changes))
+    return changes
+
+
+def _strip_code_fences(lines: list) -> list:
+    out = []
+    in_fence = False
+    for ln in lines:
+        if _CODE_FENCE_RE.match(ln):
+            in_fence = not in_fence
+            continue
+        if not in_fence:
+            out.append(ln)
+    return out
+
+
+def _diff_code_blocks(prev_lines: list, new_lines: list) -> list:
+    """코드블록(```~```) 내용을 정규화 비교. 변경이 있으면 요약 라인 반환."""
+    def extract_blocks(lines):
+        blocks = []
+        cur = None
+        for ln in lines:
+            if _CODE_FENCE_RE.match(ln):
+                if cur is None:
+                    cur = []
+                else:
+                    blocks.append("\n".join(cur).strip())
+                    cur = None
+            elif cur is not None:
+                cur.append(ln)
+        return blocks
+
+    def normalize_block(b: str) -> str:
+        # JSON 으로 파싱 가능하면 sort_keys 직렬화
+        try:
+            obj = json.loads(b)
+            return json.dumps(obj, sort_keys=True, ensure_ascii=False)
+        except Exception:
+            return re.sub(r"\s+", " ", b).strip()
+
+    p_blocks = [normalize_block(b) for b in extract_blocks(prev_lines)]
+    n_blocks = [normalize_block(b) for b in extract_blocks(new_lines)]
+    changes = []
+    if len(p_blocks) != len(n_blocks):
+        changes.append(f"- 🔁 **코드블록 개수 변경**: {len(p_blocks)} → {len(n_blocks)}")
+    common = min(len(p_blocks), len(n_blocks))
+    for i in range(common):
+        if p_blocks[i] != n_blocks[i]:
+            changes.append(f"- 🔁 **코드블록 #{i+1} 내용 변경**")
+    return changes
+
+
+def _word_diff_line(prev: str, new: str) -> str:
+    """한 줄 안의 word-level 차이를 ~~삭제~~ **추가** 로 표기."""
+    p_tokens = re.findall(r"\S+|\s+", prev)
+    n_tokens = re.findall(r"\S+|\s+", new)
+    sm = difflib.SequenceMatcher(a=p_tokens, b=n_tokens, autojunk=False)
+    out = []
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            out.append("".join(n_tokens[j1:j2]))
+        elif tag == "delete":
+            seg = "".join(p_tokens[i1:i2]).strip()
+            if seg:
+                out.append(f" ~~{seg}~~ ")
+        elif tag == "insert":
+            seg = "".join(n_tokens[j1:j2]).strip()
+            if seg:
+                out.append(f" **{seg}** ")
+        elif tag == "replace":
+            ds = "".join(p_tokens[i1:i2]).strip()
+            ins = "".join(n_tokens[j1:j2]).strip()
+            if ds:
+                out.append(f" ~~{ds}~~ ")
+            if ins:
+                out.append(f" **{ins}** ")
+    return re.sub(r"\s+", " ", "".join(out)).strip()
+
+
+def _diff_text(prev_lines: list, new_lines: list) -> list:
+    """표·코드블록 제외 자유 텍스트 줄 비교. word-level 강조."""
+    p = [ln for ln in _strip_code_fences(prev_lines) if not _TABLE_ROW_RE.match(ln)]
+    n = [ln for ln in _strip_code_fences(new_lines) if not _TABLE_ROW_RE.match(ln)]
+    # 빈줄·공백만 다른 차이 제거
+    p = [ln for ln in p if ln.strip()]
+    n = [ln for ln in n if ln.strip()]
+    if p == n:
+        return []
+    sm = difflib.SequenceMatcher(a=p, b=n, autojunk=False)
+    changes = []
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            continue
+        if tag == "insert":
+            for ln in n[j1:j2]:
+                changes.append(f"- ➕ **추가**: {ln.strip()}")
+        elif tag == "delete":
+            for ln in p[i1:i2]:
+                changes.append(f"- ➖ **삭제**: {ln.strip()}")
+        elif tag == "replace":
+            pairs = min(i2 - i1, j2 - j1)
+            for k in range(pairs):
+                wd = _word_diff_line(p[i1 + k], n[j1 + k])
+                if wd:
+                    changes.append(f"- ✏️ **변경**: {wd}")
+            for ln in p[i1 + pairs:i2]:
+                changes.append(f"- ➖ **삭제**: {ln.strip()}")
+            for ln in n[j1 + pairs:j2]:
+                changes.append(f"- ➕ **추가**: {ln.strip()}")
+    return changes
+
+
+def _diff_section(prev_lines: list, new_lines: list) -> list:
+    """한 섹션 본문 비교 — 표·코드블록·텍스트 별로 분기."""
+    out = []
+    out.extend(_diff_table(prev_lines, new_lines))
+    out.extend(_diff_code_blocks(prev_lines, new_lines))
+    out.extend(_diff_text(prev_lines, new_lines))
+    return out
+
+
 def build_diff_block(prev_content: str, new_content: str,
                      max_lines: int = 200) -> str:
-    """수정 Draft 용 unified diff 섹션 생성.
+    """수정 Draft 용 구조화 변경사항 섹션 생성.
 
-    의미 변경(텍스트 차이) 만 강조. 공백/백틱 같은 마크다운 포매팅 차이는 필터링.
-    변경 사항이 없으면 빈 문자열 반환. 너무 길면 max_lines 까지만 노출하고
-    잘렸음을 알리는 주석을 덧붙인다. publish 시 strip 으로 제거된다.
+    이전/새 마크다운을 헤더 경로(`H2 > H3`) 단위로 분할하고, 각 섹션 안에서:
+      - 마크다운 표는 행 키(첫 컬럼) 기반 dict diff 로 추가/삭제/셀변경 표시
+      - 코드블록은 JSON 정규화 후 동일 여부 비교 (포매팅 차이는 무시)
+      - 자유 텍스트는 줄 단위 + word-level diff 로 강조
+    변경 사항이 없으면 빈 문자열을 반환. publish 시 strip 으로 제거된다.
     """
     if not prev_content or not new_content:
         return ""
-    prev_lines = prev_content.splitlines(keepends=True)
-    new_lines = new_content.splitlines(keepends=True)
-    diff_lines = list(difflib.unified_diff(
-        prev_lines, new_lines,
-        fromfile="이전 published 버전",
-        tofile="새 Draft",
-        n=2,
-    ))
-    if not diff_lines:
+
+    prev_sections = _split_sections(prev_content)
+    new_sections = _split_sections(new_content)
+
+    # 순서 보존된 union (new 우선)
+    prev_map = {h: b for (h, _l, b) in prev_sections}
+    new_map = {h: b for (h, _l, b) in new_sections}
+    seen = set()
+    ordered = []
+    for h, _l, _b in new_sections:
+        if h not in seen:
+            ordered.append(h); seen.add(h)
+    for h, _l, _b in prev_sections:
+        if h not in seen:
+            ordered.append(h); seen.add(h)
+
+    blocks = []  # list of (heading, list[str])
+    for h in ordered:
+        if h == "(서두)":
+            continue
+        in_prev = h in prev_map
+        in_new = h in new_map
+        if in_prev and not in_new:
+            blocks.append((h, ["- 🗑 **섹션 삭제됨**"]))
+        elif in_new and not in_prev:
+            # 신규 섹션이면 본문 첫 줄만 발췌
+            preview = next((ln.strip() for ln in new_map[h] if ln.strip()), "")
+            tail = f" — {preview[:80]}" if preview else ""
+            blocks.append((h, [f"- 🆕 **신규 섹션 추가됨**{tail}"]))
+        else:
+            sec_changes = _diff_section(prev_map[h], new_map[h])
+            if sec_changes:
+                blocks.append((h, sec_changes))
+
+    if not blocks:
         return ""
 
-    # 노이즈 필터링 — 공백/백틱만 다른 -/+ 쌍 제거, 빈 hunk 제거
-    diff_lines = _filter_noise_pairs(diff_lines)
-    diff_lines = _drop_empty_hunks(diff_lines)
-    # 헤더 외 실제 변경 라인이 없으면 빈 결과
-    if not any(
-        (ln.startswith("-") and not ln.startswith("--- "))
-        or (ln.startswith("+") and not ln.startswith("+++ "))
-        for ln in diff_lines
-    ):
-        return ""
-
+    # 길이 제한 — 항목 수 기준
+    total_items = sum(len(c) for _, c in blocks)
     truncated = False
-    if len(diff_lines) > max_lines:
-        diff_lines = diff_lines[:max_lines]
-        truncated = True
-    body = "".join(diff_lines)
-    body = body.replace("```", "``​`")  # 코드블록 깨짐 방지
-    note = "\n\n_diff 가 너무 길어 일부만 표시되었습니다._" if truncated else ""
+    if total_items > max_lines:
+        budget = max_lines
+        clipped = []
+        for h, c in blocks:
+            if budget <= 0:
+                truncated = True
+                break
+            if len(c) <= budget:
+                clipped.append((h, c)); budget -= len(c)
+            else:
+                clipped.append((h, c[:budget] + ["- … (이하 생략)"]))
+                budget = 0; truncated = True
+        blocks = clipped
+
+    body_parts = []
+    for h, c in blocks:
+        body_parts.append(f"**`{h}`**\n\n" + "\n".join(c))
+    body = "\n\n".join(body_parts)
+    note = "\n\n_변경 항목이 많아 일부만 표시되었습니다._" if truncated else ""
     return (
         f"\n\n---\n\n"
         f"### 📝 {DIFF_SECTION_TITLE}\n\n"
         f"> publish 시 자동으로 제거됩니다. 검토 후 변경 의도가 맞는지 확인해주세요.\n"
-        f"> 공백·마크다운 포매팅 차이는 필터링되어, 텍스트 변경만 강조합니다.\n\n"
-        f"```diff\n{body}```{note}\n"
+        f"> 섹션별로 표 행/코드블록/텍스트 변경을 의미 단위로 정리합니다. "
+        f"공백·마크다운 포매팅·코드블록 재정렬 같은 비-의미 차이는 자동 필터링됩니다.\n\n"
+        f"{body}{note}\n"
     )
 
 
