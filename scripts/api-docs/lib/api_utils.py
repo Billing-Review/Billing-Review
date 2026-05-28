@@ -985,10 +985,40 @@ def _diff_table(prev_lines: list, new_lines: list) -> list:
                 pv = _normalize_cell(p_row.get(col, ""))
                 nv = _normalize_cell(n_row.get(col, ""))
                 if pv != nv:
-                    cell_changes.append(f"`{col}` `{pv or '∅'}` → `{nv or '∅'}`")
+                    cell_changes.append(f"`{col}`: {_format_value_change(pv, nv)}")
             if cell_changes:
-                changes.append(f"- ✏️ **행 변경**: `{key}` — " + "; ".join(cell_changes))
+                if len(cell_changes) == 1:
+                    changes.append(f"- ✏️ **`{key}` 행 변경**: {cell_changes[0]}")
+                else:
+                    bullets = "\n".join(f"    - {c}" for c in cell_changes)
+                    changes.append(f"- ✏️ **`{key}` 행 변경**:\n{bullets}")
     return changes
+
+
+def _format_value_change(prev: str, new: str) -> str:
+    """표 셀 값 변경 표기.
+
+    - 한쪽이 비어있으면 추가/삭제로 표기
+    - 짧은 값(둘 다 20자 이하)이면 `prev` → `new` 화살표
+    - 그 외에는 단어 단위로 공통 부분이 있으면 word-level 강조,
+      공통 부분이 거의 없으면 화살표 형식
+    """
+    if not prev:
+        return f"_(없음)_ → `{new}`"
+    if not new:
+        return f"`{prev}` → _(삭제)_"
+    if len(prev) <= 20 and len(new) <= 20:
+        return f"`{prev}` → `{new}`"
+    # word-level 시도
+    p_tokens = re.findall(r"\S+", prev)
+    n_tokens = re.findall(r"\S+", new)
+    sm = difflib.SequenceMatcher(a=p_tokens, b=n_tokens, autojunk=False)
+    ratio = sm.ratio()
+    if ratio >= 0.4:  # 공통 단어 비율이 의미있게 있을 때만 word-level
+        wd = _word_diff_line(prev, new)
+        if wd:
+            return wd
+    return f"`{prev}` → `{new}`"
 
 
 def _strip_code_fences(lines: list) -> list:
@@ -1089,9 +1119,8 @@ def _diff_text(prev_lines: list, new_lines: list) -> list:
         elif tag == "replace":
             pairs = min(i2 - i1, j2 - j1)
             for k in range(pairs):
-                wd = _word_diff_line(p[i1 + k], n[j1 + k])
-                if wd:
-                    changes.append(f"- ✏️ **변경**: {wd}")
+                pl, nl = p[i1 + k].strip(), n[j1 + k].strip()
+                changes.append(f"- ✏️ **변경**: {_format_value_change(pl, nl)}")
             for ln in p[i1 + pairs:i2]:
                 changes.append(f"- ➖ **삭제**: {ln.strip()}")
             for ln in n[j1 + pairs:j2]:
@@ -1176,8 +1205,10 @@ def build_diff_block(prev_content: str, new_content: str,
 
     body_parts = []
     for h, c in blocks:
-        body_parts.append(f"**`{h}`**\n\n" + "\n".join(c))
+        body_parts.append(f"**`{h}`** ({len(c)}건)\n\n" + "\n".join(c))
     body = "\n\n".join(body_parts)
+    total_changes = sum(len(c) for _, c in blocks)
+    summary = f"**변경 요약**: {len(blocks)}개 섹션, 총 {total_changes}건"
     note = "\n\n_변경 항목이 많아 일부만 표시되었습니다._" if truncated else ""
     return (
         f"\n\n---\n\n"
@@ -1185,6 +1216,7 @@ def build_diff_block(prev_content: str, new_content: str,
         f"> publish 시 자동으로 제거됩니다. 검토 후 변경 의도가 맞는지 확인해주세요.\n"
         f"> 섹션별로 표 행/코드블록/텍스트 변경을 의미 단위로 정리합니다. "
         f"공백·마크다운 포매팅·코드블록 재정렬 같은 비-의미 차이는 자동 필터링됩니다.\n\n"
+        f"{summary}\n\n"
         f"{body}{note}\n"
     )
 
