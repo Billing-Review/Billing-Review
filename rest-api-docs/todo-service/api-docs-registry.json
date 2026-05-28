@@ -33,14 +33,18 @@
     "external": "4335854322282858224"
   },
   "GET /external/api/todo-list/statistics": {
-    "status": "draft",
-    "draft_page_id": "4342314900558953462",
+    "status": "published",
+    "draft_page_id": null,
     "title": "Todo 상태별 통계 조회",
     "url_hint": "external",
     "created_at": "2026-05-20T16:43:44+09:00",
-    "updated_at": "2026-05-28T15:04:34+09:00",
+    "updated_at": "2026-05-28T16:16:38+09:00",
     "deprecated_at": null,
-    "page_id": "4336970533509711970"
+    "page_id": "4336970533509711970",
+    "domains": {
+      "Alpha": "https://alpha-todo.example.com",
+      "Real": "https://todo.example.com"
+    }
   },
   "POST /external/api/todo-list/categorized": {
     "status": "draft",
