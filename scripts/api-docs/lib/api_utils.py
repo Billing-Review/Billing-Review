@@ -1089,29 +1089,73 @@ def _word_diff_line(prev: str, new: str) -> str:
     return re.sub(r"\s+", " ", "".join(out)).strip()
 
 
-def _diff_text(prev_lines: list, new_lines: list) -> list:
-    """표·코드블록 제외 자유 텍스트 줄 비교.
+_LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]\s+|\d+\.\s+|>\s+)")
 
-    (sub_title, diff_lines) 튜플 목록 반환. 인접한 변경은 한 블록으로 묶는다.
+
+def _merge_into_units(lines: list) -> list:
+    """자유 텍스트 줄을 의미 단위(문단/리스트 아이템) 로 병합.
+
+    - 빈 줄 = 단위 경계
+    - 새 리스트 마커 (-, *, +, 숫자., >) = 이전 단위 종료 후 새 단위 시작
+    - 들여쓴(공백으로 시작) 연속 줄은 직전 단위의 연속으로 간주
+    - 그 외 연속된 줄은 같은 문단으로 합쳐서 공백 정규화
+    이렇게 묶어두면 같은 문장을 한 줄로 vs 여러 줄로 작성한 차이가 동일 단위로 매칭됨.
     """
-    p = [ln for ln in _strip_code_fences(prev_lines) if not _TABLE_ROW_RE.match(ln)]
-    n = [ln for ln in _strip_code_fences(new_lines) if not _TABLE_ROW_RE.match(ln)]
-    p = [ln for ln in p if ln.strip()]
-    n = [ln for ln in n if ln.strip()]
+    units = []
+    cur = []
+
+    def flush():
+        if cur:
+            text = " ".join(s.strip() for s in cur if s.strip())
+            text = re.sub(r"\s+", " ", text).strip()
+            if text:
+                units.append(text)
+            cur.clear()
+
+    for raw in lines:
+        ln = raw.rstrip()
+        if not ln.strip():
+            flush()
+            continue
+        # 새 리스트/인용 아이템 시작 → 이전 단위 종료
+        if _LIST_ITEM_RE.match(ln):
+            flush()
+            cur.append(ln)
+            continue
+        # 들여쓰기 시작 → 직전 단위에 이어붙임
+        if ln.startswith((" ", "\t")) and cur:
+            cur.append(ln)
+            continue
+        # 들여쓰기 없는 일반 줄 — 직전이 리스트 아이템이면 단락 분리, 아니면 이어붙임
+        if cur and _LIST_ITEM_RE.match(cur[0]):
+            flush()
+        cur.append(ln)
+    flush()
+    return units
+
+
+def _diff_text(prev_lines: list, new_lines: list) -> list:
+    """표·코드블록 제외 자유 텍스트를 문단/리스트 아이템 단위로 비교.
+
+    (sub_title, diff_lines) 튜플 목록 반환. 줄바꿈 위치·공백만 다른 차이는 필터링.
+    """
+    p_raw = [ln for ln in _strip_code_fences(prev_lines) if not _TABLE_ROW_RE.match(ln)]
+    n_raw = [ln for ln in _strip_code_fences(new_lines) if not _TABLE_ROW_RE.match(ln)]
+    p = _merge_into_units(p_raw)
+    n = _merge_into_units(n_raw)
     if p == n:
         return []
     sm = difflib.SequenceMatcher(a=p, b=n, autojunk=False)
-    # 인접 변경을 하나의 블록으로
     block = []
     for tag, i1, i2, j1, j2 in sm.get_opcodes():
         if tag == "equal":
             continue
         if tag in ("delete", "replace"):
             for ln in p[i1:i2]:
-                block.append(f"- {ln.strip()}")
+                block.append(f"- {ln}")
         if tag in ("insert", "replace"):
             for ln in n[j1:j2]:
-                block.append(f"+ {ln.strip()}")
+                block.append(f"+ {ln}")
     if not block:
         return []
     return [("텍스트 변경", block)]
