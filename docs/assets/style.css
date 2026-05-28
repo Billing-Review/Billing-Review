@@ -226,6 +226,36 @@ body {
 }
 .missing-list a:hover { background: #ddf4ff; color: var(--primary); }
 
+/* ── Group 환경 URL 셀 ────────────────────────────── */
+.env-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.env-cell__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.env-cell__key {
+  flex-shrink: 0;
+  min-width: 44px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+.env-cell__url {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text);
+  word-break: break-all;
+}
+
 /* ── Callout (alerts, info boxes) ─────────────────── */
 .callout {
   border-left: 4px solid var(--primary);

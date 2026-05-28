@@ -219,9 +219,15 @@ export async function renderDomains(root, selected /* optional serviceName */) {
             h("td", null, g.name || ""),
             h("td", null, h("code", null, g.packagePrefix || "")),
             h("td", null,
-              g.environments
-                ? Object.entries(g.environments)
-                    .map(([k, v]) => `${k}: ${v}`).join(" / ")
+              g.environments && Object.keys(g.environments).length
+                ? h("div", { class: "env-cell" },
+                    ...Object.entries(g.environments).map(([k, v]) =>
+                      h("div", { class: "env-cell__row" },
+                        h("span", { class: "env-cell__key" }, k),
+                        h("span", { class: "env-cell__url" }, v)
+                      )
+                    )
+                  )
                 : h("span", { style: { color: "var(--text-muted)" } }, "(service 기본값 사용)")
             ),
             h("td", null,
