@@ -39,17 +39,17 @@ body {
 
 /* ── Layout: nav sidebar + main ───────────────────── */
 .layout {
-  display: grid;
-  grid-template-columns: 220px 1fr;
+  display: flex;
   min-height: calc(100vh - 49px);
 }
 .nav-sidebar {
+  flex: 0 0 220px;
   background: var(--bg-card);
   border-right: 1px solid var(--border);
   padding: 16px 0;
   position: sticky;
   top: 0;
-  align-self: start;
+  align-self: stretch;
   max-height: calc(100vh - 49px);
   overflow-y: auto;
 }
@@ -100,7 +100,7 @@ body {
 }
 
 /* ── App container ────────────────────────────────── */
-.app { max-width: 1280px; padding: 24px; width: 100%; }
+.app { flex: 1; max-width: 1280px; padding: 24px; min-width: 0; }
 
 /* ── Feature picker (deploy 페이지 상단 선택) ──────── */
 .feature-picker {
