@@ -8,18 +8,24 @@ export async function renderDeploy(root, featureId /* optional */) {
   // featureId 미지정이면 첫 번째 feature로 폴백
   const feature = FEATURES.find((f) => f.id === featureId) || FEATURES[0];
 
-  const featureSelect = h(
-    "select",
-    {
-      onchange: (e) => {
-        location.hash = `#/deploy/${e.target.value}`;
+  const featurePicker = h(
+    "div",
+    { class: "feature-picker" },
+    h("span", { class: "feature-picker__label" }, "기능"),
+    h(
+      "select",
+      {
+        class: "feature-picker__select",
+        onchange: (e) => {
+          location.hash = `#/deploy/${e.target.value}`;
+        },
       },
-    },
-    ...FEATURES.map((f) =>
-      h(
-        "option",
-        { value: f.id, selected: f.id === feature.id ? true : null },
-        f.label
+      ...FEATURES.map((f) =>
+        h(
+          "option",
+          { value: f.id, selected: f.id === feature.id ? true : null },
+          f.label
+        )
       )
     )
   );
@@ -224,14 +230,9 @@ export async function renderDeploy(root, featureId /* optional */) {
           },
         },
         h("h2", { class: "card__title", style: { margin: 0 } }, "기능 배포"),
-        h(
-          "div",
-          { style: { display: "flex", gap: "8px", alignItems: "center" } },
-          h("label", { style: { fontSize: "13px" } }, "기능: "),
-          featureSelect,
-          refreshBtn
-        )
+        refreshBtn
       ),
+      featurePicker,
       h(
         "p",
         { class: "card__desc" },

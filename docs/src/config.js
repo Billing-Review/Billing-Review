@@ -62,6 +62,19 @@ export const FEATURES = [
     // rest-api-docs/service-config.json 에 환경별 URL 을 등록한다.
     extraSetup: "service-config",
   },
+  {
+    id: "ai-context-sync",
+    label: "AI Context Sync",
+    files: [
+      {
+        source: ".github/workflows/templates/sync-ai-context.yml",
+        target: ".github/workflows/sync-ai-context.yml",
+      },
+    ],
+    manualWorkflows: [
+      { file: "sync-ai-context.yml", label: "Sync" },
+    ],
+  },
 ];
 
 // 레포 목록 정렬 기준: "updated" | "name" | "created"
@@ -75,3 +88,23 @@ export const API_DOCS_WORKFLOW_REF = "main";
 
 // Draft 생성 시 컨트롤러 "소스 코드"를 읽을 기본 브랜치
 export const API_DOCS_CODE_BRANCH_DEFAULT = "main";
+
+// =============================================================
+// AI Context 동기화 (billing-context 레포 기준)
+// =============================================================
+export const CONTEXT_REPO = "billing-context";
+export const CONTEXT_REPOS_JSON_PATH = "repos.json";
+export const CONTEXT_STATE_DIR = "state";
+export const CONTEXT_AI_DIR = "ai-context";
+export const SYNC_WORKFLOW_FILE = "sync-ai-context.yml";
+export const SYNC_WORKFLOW_REF = "main";
+
+// 기대되는 ai-context 파일 (전체 생성 시)
+export const AI_CONTEXT_EXPECTED_FILES = [
+  "domain-overview.md",
+  "data-model.md",
+  "api-spec.json",
+  "job-spec.json",
+  "kafka-spec.json",
+  "external-integration.md",
+];

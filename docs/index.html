@@ -9,12 +9,6 @@
   <body>
     <header class="topbar">
       <div class="topbar__title">⚙️ GitHub Actions 관리</div>
-      <nav id="main-nav" class="topbar__nav" style="display:none">
-        <a class="nav-item" data-route="#/repos" href="#/repos">레포 관리</a>
-        <a class="nav-item" data-route="#/overview" href="#/overview">적용 현황</a>
-        <a class="nav-item" data-route="#/deploy" href="#/deploy">기능 배포</a>
-        <a class="nav-item" data-route="#/domains" href="#/domains">도메인 관리</a>
-      </nav>
       <div class="topbar__right">
         <span id="user-info" class="topbar__user"></span>
         <span id="rate-limit" class="topbar__rate"></span>
@@ -22,7 +16,10 @@
       </div>
     </header>
 
-    <main id="app" class="app"></main>
+    <div class="layout">
+      <aside id="nav-sidebar" class="nav-sidebar" style="display:none"></aside>
+      <main id="app" class="app"></main>
+    </div>
 
     <div id="toast-root" class="toast-root"></div>
 

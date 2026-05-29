@@ -3,13 +3,14 @@ import { renderLogin } from "./views/login.js";
 import { renderRepos } from "./views/repos.js";
 import { renderOverview } from "./views/overview.js";
 import { renderDeploy } from "./views/deploy.js";
+import { renderNavSidebar } from "./views/nav-sidebar.js";
 import { mount, h } from "./utils/dom.js";
 
 const root = document.getElementById("app");
 const userInfo = document.getElementById("user-info");
 const rateInfo = document.getElementById("rate-limit");
 const logoutBtn = document.getElementById("logout-btn");
-const mainNav = document.getElementById("main-nav");
+const navSidebar = document.getElementById("nav-sidebar");
 
 logoutBtn.addEventListener("click", () => {
   clearAuth();
@@ -20,30 +21,16 @@ subscribe((state) => {
   if (state.user) {
     userInfo.textContent = `@${state.user.login}`;
     logoutBtn.style.display = "";
-    mainNav.style.display = "";
+    navSidebar.style.display = "";
   } else {
     userInfo.textContent = "";
     logoutBtn.style.display = "none";
-    mainNav.style.display = "none";
+    navSidebar.style.display = "none";
   }
   if (state.rateLimit) {
     rateInfo.textContent = `API ${state.rateLimit.remaining}/${state.rateLimit.limit}`;
   }
 });
-
-// 현재 라우트에 맞춰 nav 활성화 표시
-function updateNavActive(hash) {
-  const navItems = mainNav.querySelectorAll(".nav-item");
-  navItems.forEach((el) => {
-    const target = el.dataset.route;
-    let active = false;
-    if (target === "#/repos" && hash.startsWith("#/repos")) active = true;
-    if (target === "#/overview" && hash.startsWith("#/overview")) active = true;
-    if (target === "#/deploy" && hash.startsWith("#/deploy")) active = true;
-    if (target === "#/domains" && hash.startsWith("#/domains")) active = true;
-    el.classList.toggle("is-active", active);
-  });
-}
 
 async function navigate() {
   const hash = location.hash || "#/login";
@@ -54,17 +41,16 @@ async function navigate() {
       location.hash = "#/login";
       return;
     }
-    updateNavActive("");
     renderLogin(root);
     return;
   }
 
   if (hash === "#/login") {
-    location.hash = "#/repos";
+    location.hash = "#/overview";
     return;
   }
 
-  updateNavActive(hash);
+  renderNavSidebar(navSidebar, hash);
 
   // 레포 관리
   if (hash === "#/repos") return renderRepos(root);
@@ -86,6 +72,12 @@ async function navigate() {
     return renderDomains(root, m ? decodeURIComponent(m[1]) : null);
   }
 
+  // AI Context 동기화 상태
+  if (hash === "#/ai-context") {
+    const { renderAiContext } = await import("./views/ai-context.js");
+    return renderAiContext(root);
+  }
+
   // 디테일 화면 (사이드바 뷰에서 진입)
   const apiDocsMatch = hash.match(/^#\/api-docs\/([^/]+)$/);
   if (apiDocsMatch) {
@@ -100,7 +92,7 @@ async function navigate() {
 
   // 기본 (또는 #/matrix 등 구 라우트)
   if (hash === "#/matrix" || hash === "#/") {
-    location.hash = "#/repos";
+    location.hash = "#/overview";
     return;
   }
 
