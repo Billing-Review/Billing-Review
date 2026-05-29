@@ -20,6 +20,12 @@ on:
       - '**/build.gradle.kts'
   workflow_dispatch:
 
+# 같은 레포에 대한 동기화는 직렬화 (병렬 실행 시 push 충돌 + 토큰 낭비 방지).
+# cancel-in-progress: false → 진행 중인 실행은 끝까지 두고, 새 실행은 큐 대기.
+concurrency:
+  group: sync-ai-context-${{ github.repository }}
+  cancel-in-progress: false
+
 jobs:
   sync:
     # PR이 실제로 merge 된 경우에만 실행 (close 만 된 경우 skip)
